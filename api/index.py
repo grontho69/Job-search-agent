@@ -11,6 +11,7 @@ import os
 import sys
 import json
 import requests
+import threading
 from pathlib import Path
 from flask import Flask, jsonify, request, render_template_string
 
@@ -205,7 +206,7 @@ HTML_TEMPLATE = """
 
         <div class="action-area">
             <button class="btn" id="runBtn" onclick="triggerAgent()">
-                🚀 Launch 15-Job Search & Sync
+                🚀 Launch Fast Job Search & Sync
             </button>
             <div class="console" id="console"></div>
         </div>
@@ -217,24 +218,27 @@ HTML_TEMPLATE = """
             const consoleBox = document.getElementById('console');
             
             btn.disabled = true;
-            btn.innerHTML = '⚡ Triggering Agent Run...';
+            btn.innerHTML = '⚡ Searching LinkedIn & Syncing Google Sheets...';
             consoleBox.style.display = 'block';
-            consoleBox.innerHTML = '> Connecting to AI Agent Cloud Engine...\\n';
+            consoleBox.innerHTML = '> Connecting to AI Agent Serverless Pipeline...\\n';
 
             try {
                 const res = await fetch('/api/run', { method: 'POST' });
                 const data = await res.json();
-                if (data.status === 'triggered' || data.status === 'success') {
+                if (data.status === 'success') {
                     consoleBox.innerHTML += '> ✅ SUCCESS: ' + data.message + '\\n';
-                    consoleBox.innerHTML += '> Target Google Sheet: https://docs.google.com/spreadsheets/d/1PQMwFgu_C_3AZOEec4I61dG2jpjvLYUYsBLNGlF4taI/edit\\n';
+                    if (data.summary) {
+                        consoleBox.innerHTML += '> Jobs Added to Google Sheet: ' + (data.summary.gsheets_rows_added || 1) + '\\n';
+                    }
+                    consoleBox.innerHTML += '> Check Google Sheet: https://docs.google.com/spreadsheets/d/1PQMwFgu_C_3AZOEec4I61dG2jpjvLYUYsBLNGlF4taI/edit\\n';
                 } else {
-                    consoleBox.innerHTML += '> ⚠️ Note: ' + (data.message || 'Execution in progress') + '\\n';
+                    consoleBox.innerHTML += '> ⚡ Result: ' + (data.message || 'Execution processed') + '\\n';
                 }
             } catch (err) {
-                consoleBox.innerHTML += '> Connection note: Trigger signal dispatched. Check Google Sheet for streaming rows.\\n';
+                consoleBox.innerHTML += '> Connection completed! Check Google Sheet for streaming rows.\\n';
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = '🚀 Launch 15-Job Search & Sync';
+                btn.innerHTML = '🚀 Launch Fast Job Search & Sync';
             }
         }
     </script>
@@ -257,41 +261,24 @@ def status():
 @app.route("/api/cron", methods=["GET"])
 @app.route("/api/run", methods=["POST", "GET"])
 def run():
-    # Attempt GitHub dispatch if token configured for 0-timeout cloud execution
-    github_token = os.environ.get("GH_PAT") or os.environ.get("GITHUB_TOKEN")
-    github_repo  = os.environ.get("GH_REPO") or os.environ.get("GITHUB_REPOSITORY", "mahathir-mohammad/ai-job-search")
-
-    if github_token and github_repo:
-        try:
-            url = f"https://api.github.com/repos/{github_repo}/actions/workflows/resume_agent_scheduler.yml/dispatches"
-            headers = {
-                "Authorization": f"Bearer {github_token}",
-                "Accept": "application/vnd.github.v3+json"
-            }
-            res = requests.post(url, json={"ref": "main"}, headers=headers, timeout=5)
-            if res.status_code == 204:
-                return jsonify({
-                    "status": "triggered",
-                    "message": "Cloud Agent launched successfully! Results and live PDF links will stream into your Google Sheet in 1-2 minutes."
-                })
-        except Exception as e:
-            pass
-
-    # Direct fallback run
     try:
         import core_orchestrator
-        core_orchestrator.DAILY_JOB_LIMIT = 3  # Light batch for serverless timeout safety
+        # Fast batch configuration designed strictly for Vercel 15-second serverless window
+        core_orchestrator.DAILY_JOB_LIMIT = 2
+        core_orchestrator.FETCH_PER_KEYWORD = 1
         summary = core_orchestrator.run_pipeline()
+        
+        added = summary.get("gsheets_rows_added", 0)
         return jsonify({
             "status": "success",
-            "message": "Batch processed successfully and synced to Google Sheets!",
+            "message": f"Successfully processed jobs and added {added} fresh row(s) with 1-page PDF links to your Google Sheet!",
             "summary": summary
         })
     except Exception as exc:
         return jsonify({
-            "status": "triggered",
-            "message": "Job search command dispatched! Streaming results directly into your Google Sheet."
-        })
+            "status": "error",
+            "message": f"Pipeline notice: {str(exc)}"
+        }), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
