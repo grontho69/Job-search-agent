@@ -1,0 +1,269 @@
+# ============================================================================
+# .github/workflows/keep_awake_huggingface.yml
+# ============================================================================
+# Hugging Face Space Keep-Alive Workflow
+# ----------------------------------------
+# Purpose:
+#   Hugging Face Spaces automatically "hibernate" after 48-72 hours of
+#   inactivity (for free-tier CPU spaces). This workflow prevents hibernation
+#   by simulating real user traffic twice daily using Playwright's headless
+#   browser automation — navigating to the Space, waiting for the UI to fully
+#   render, and gracefully exiting.
+#
+# How it works:
+#   Playwright launches a headless Chromium browser instance (no display
+#   required — GitHub Actions runners are headless by default), navigates to
+#   the target Space URL, waits for key page elements to be visible (proving
+#   the app is awake and rendering), and then exits cleanly. This simulates
+#   enough organic traffic to reset the hibernation timer.
+#
+# Cron Schedule:
+#   Runs at 08:00 UTC and 20:00 UTC daily (twice per day, ~12 hours apart).
+#   This keeps any 48-hour hibernation timer well below its threshold.
+#
+# Configuration:
+#   Set the HUGGINGFACE_SPACE_URL secret in your GitHub repository to the
+#   full URL of the Space to keep awake (e.g., https://user-name.hf.space).
+#   If the secret is not set, the workflow uses the placeholder URL below
+#   and will log a warning without failing.
+#
+# Required GitHub Secret (optional but recommended):
+#   HUGGINGFACE_SPACE_URL — Full URL of your Hugging Face Space
+#
+# Cost: Zero — uses free GitHub Actions minutes (Ubuntu runners).
+# ============================================================================
+
+name: 🌐 Keep HuggingFace Space Awake
+
+on:
+  # -------------------------------------------------------------------------
+  # Twice-daily schedule — 08:00 and 20:00 UTC
+  # Keeps any 48-hour inactivity timer well below its expiry threshold.
+  # -------------------------------------------------------------------------
+  schedule:
+    - cron: "0 8 * * *"    # 08:00 UTC daily
+    - cron: "0 20 * * *"   # 20:00 UTC daily
+
+  # -------------------------------------------------------------------------
+  # Manual dispatch — Trigger immediately from the GitHub Actions UI.
+  # Useful for testing or waking a Space that has already hibernated.
+  # -------------------------------------------------------------------------
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "Override Space URL for this run (leave blank to use secret)"
+        required: false
+        default: ""
+      wait_seconds:
+        description: "Seconds to wait on page after load (simulates reading time)"
+        required: false
+        default: "10"
+
+# ============================================================================
+jobs:
+# ============================================================================
+
+  keep-space-awake:
+    name: Ping HuggingFace Space
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # ----------------------------------------------------------------------
+      # Step 1: Check out repo (not strictly needed for this workflow but
+      # useful if you ever want to log visit history to the repo).
+      # ----------------------------------------------------------------------
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      # ----------------------------------------------------------------------
+      # Step 2: Set up Python for Playwright
+      # ----------------------------------------------------------------------
+      - name: 🐍 Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # ----------------------------------------------------------------------
+      # Step 3: Install Playwright and its Chromium browser binary
+      #
+      # playwright install --with-deps chromium:
+      #   Downloads the Chromium binary AND all system OS dependencies needed
+      #   to run it headlessly on Ubuntu (fonts, nss libraries, etc.)
+      #   The --with-deps flag handles apt package installation automatically.
+      # ----------------------------------------------------------------------
+      - name: 🎭 Install Playwright + Chromium
+        run: |
+          pip install playwright==1.44.0
+          python -m playwright install --with-deps chromium
+          echo "✅ Playwright and Chromium installed."
+
+      # ----------------------------------------------------------------------
+      # Step 4: Resolve the target Space URL
+      # Priority: manual dispatch input > repo secret > hardcoded placeholder
+      # ----------------------------------------------------------------------
+      - name: 🔗 Resolve Target URL
+        id: resolve-url
+        run: |
+          # Manual dispatch override takes highest priority
+          if [ -n "${{ github.event.inputs.target_url }}" ]; then
+            TARGET_URL="${{ github.event.inputs.target_url }}"
+            echo "Using manual dispatch URL: $TARGET_URL"
+
+          # Repository secret is the standard configuration method
+          elif [ -n "${{ secrets.HUGGINGFACE_SPACE_URL }}" ]; then
+            TARGET_URL="${{ secrets.HUGGINGFACE_SPACE_URL }}"
+            echo "Using HUGGINGFACE_SPACE_URL secret."
+
+          # Fallback placeholder — logs a warning but doesn't fail the workflow
+          else
+            TARGET_URL="https://huggingface.co/spaces"
+            echo "⚠️ WARNING: HUGGINGFACE_SPACE_URL secret not configured."
+            echo "   Using HuggingFace homepage as fallback. Set the secret to"
+            echo "   keep your actual Space awake:"
+            echo "   Repository → Settings → Secrets → HUGGINGFACE_SPACE_URL"
+          fi
+
+          # Export the URL for use in subsequent steps
+          echo "target_url=$TARGET_URL" >> $GITHUB_OUTPUT
+          echo "RESOLVED_URL=$TARGET_URL" >> $GITHUB_ENV
+
+      # ----------------------------------------------------------------------
+      # Step 5: Run the headless Playwright browser script
+      #
+      # This inline Python script:
+      #   1. Launches a headless Chromium browser (no display needed on CI)
+      #   2. Opens a new browser page with a realistic viewport size
+      #   3. Sets a custom User-Agent to identify as a real browser
+      #   4. Navigates to the target Space URL with a 60s timeout
+      #   5. Waits for the page body to be fully visible (DOM loaded + rendered)
+      #   6. Optionally waits additional seconds to simulate reading/usage time
+      #   7. Takes a screenshot for debugging visibility in the artifacts step
+      #   8. Logs page title and URL to confirm successful load
+      #   9. Closes the browser gracefully
+      # ----------------------------------------------------------------------
+      - name: 🌐 Run Headless Browser Ping
+        run: |
+          python3 - << 'PLAYWRIGHT_SCRIPT'
+          import sys
+          import os
+          import time
+          from datetime import datetime, timezone
+          from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+
+          # ---- Configuration ------------------------------------------------
+          TARGET_URL = os.environ.get("RESOLVED_URL", "https://huggingface.co/spaces")
+          WAIT_SECONDS = int("${{ github.event.inputs.wait_seconds || '10' }}")
+          SCREENSHOT_PATH = "keepalive_screenshot.png"
+          NAVIGATION_TIMEOUT = 60_000   # 60 seconds in milliseconds
+          ELEMENT_TIMEOUT = 30_000      # 30 seconds for element visibility
+
+          # Realistic browser User-Agent to avoid bot-detection on the Space
+          USER_AGENT = (
+              "Mozilla/5.0 (X11; Linux x86_64) "
+              "AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/124.0.0.0 Safari/537.36"
+          )
+
+          print(f"[{datetime.now(timezone.utc).isoformat()}] Starting headless browser keep-alive")
+          print(f"Target URL: {TARGET_URL}")
+
+          # ---- Playwright Execution -----------------------------------------
+          with sync_playwright() as p:
+              browser = p.chromium.launch(
+                  headless=True,  # Always headless on CI runners
+                  args=[
+                      "--no-sandbox",          # Required for GitHub Actions/Docker
+                      "--disable-dev-shm-usage",  # Prevents shared memory crashes
+                      "--disable-gpu",         # No GPU on CI runners
+                  ]
+              )
+
+              try:
+                  context = browser.new_context(
+                      user_agent=USER_AGENT,
+                      viewport={"width": 1366, "height": 768},  # Common laptop resolution
+                      locale="en-US",
+                  )
+                  page = context.new_page()
+
+                  # Navigate to the Space
+                  print(f"Navigating to: {TARGET_URL}")
+                  try:
+                      page.goto(
+                          TARGET_URL,
+                          timeout=NAVIGATION_TIMEOUT,
+                          wait_until="domcontentloaded",  # Don't wait for all resources
+                      )
+                  except PlaywrightTimeoutError:
+                      print("⚠️ Navigation timed out. Space may be waking from hibernation.")
+                      print("   This is expected behavior — the ping itself triggers the wake.")
+                      # A timeout here still counts as a successful wake request
+                      browser.close()
+                      sys.exit(0)
+
+                  # Wait for the page body to be visible — confirms full render
+                  try:
+                      page.wait_for_selector("body", timeout=ELEMENT_TIMEOUT, state="visible")
+                      print("✅ Page body is visible — Space is awake and rendering.")
+                  except PlaywrightTimeoutError:
+                      print("⚠️ Body selector timeout. Page may be partially loaded.")
+
+                  # Log page metadata for debugging
+                  title = page.title()
+                  current_url = page.url
+                  print(f"Page title: '{title}'")
+                  print(f"Final URL:  {current_url}")
+
+                  # Simulate reading time (prevents instant close from looking bot-like)
+                  if WAIT_SECONDS > 0:
+                      print(f"Simulating {WAIT_SECONDS}s reading time...")
+                      time.sleep(WAIT_SECONDS)
+
+                  # Scroll the page to simulate user engagement
+                  page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.5)")
+                  time.sleep(1)
+                  page.evaluate("window.scrollTo(0, 0)")
+
+                  # Capture a screenshot for visual confirmation in artifacts
+                  page.screenshot(path=SCREENSHOT_PATH, full_page=False)
+                  print(f"📸 Screenshot saved: {SCREENSHOT_PATH}")
+
+              finally:
+                  browser.close()
+
+          print(f"[{datetime.now(timezone.utc).isoformat()}] Keep-alive ping complete. ✅")
+          PLAYWRIGHT_SCRIPT
+        env:
+          RESOLVED_URL: ${{ env.RESOLVED_URL }}
+
+      # ----------------------------------------------------------------------
+      # Step 6: Upload screenshot as artifact for visual verification
+      # Allows you to confirm in the Actions UI that the Space loaded correctly.
+      # ----------------------------------------------------------------------
+      - name: 📸 Upload Keep-Alive Screenshot
+        uses: actions/upload-artifact@v4
+        if: always()   # Upload even if the ping had issues — useful for debugging
+        with:
+          name: keepalive-screenshot-${{ github.run_id }}-${{ github.run_attempt }}
+          path: keepalive_screenshot.png
+          retention-days: 7   # Short retention — screenshots are ephemeral diagnostics
+          if-no-files-found: warn
+
+      # ----------------------------------------------------------------------
+      # Step 7: Write summary to the GitHub Actions UI
+      # ----------------------------------------------------------------------
+      - name: 📊 Write Job Summary
+        if: always()
+        run: |
+          echo "## 🌐 HuggingFace Space Keep-Alive" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Target URL | ${{ steps.resolve-url.outputs.target_url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Run ID | \`${{ github.run_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Timestamp | $(date -u '+%Y-%m-%d %H:%M UTC') |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "View the screenshot artifact to verify the Space rendered correctly." >> $GITHUB_STEP_SUMMARY

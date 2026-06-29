@@ -1,0 +1,74 @@
+{
+  "_comment": "Real profile for Mahathir Mohammad — configured for strict single-page ATS compilation.",
+
+  "name": "Mahathir Mohammad",
+  "professional_title": "Full Stack Web Developer (MERN Stack)",
+
+  "contact": {
+    "email": "mahathirm880@gmail.com",
+    "phone": "+880 1301563161",
+    "portfolio": "https://devmahathir.netlify.app/",
+    "linkedin": "https://www.linkedin.com/in/mahathir-mohammad-4073b33b2/",
+    "github": "https://github.com/grontho69",
+    "location": "Kushtia, Khulna, Bangladesh"
+  },
+
+  "summary": "Full Stack JavaScript Developer with hands-on experience building scalable web applications using the MERN stack (React.js, Next.js, Node.js, Express.js, MongoDB). Skilled in developing SaaS platforms, e-commerce applications, and role-based management dashboards with clean code and high performance.",
+
+  "technical_skills": {
+    "Frontend": ["React.js", "Next.js", "JavaScript (ES6+)", "GSAP", "Tailwind CSS", "Responsive Design"],
+    "Backend & DB": ["Node.js", "Express.js", "REST API Development", "MongoDB", "Firebase Authentication"],
+    "Tools & Practices": ["Git", "GitHub", "NextAuth.js", "Figma", "Problem Solving", "Clean Code"]
+  },
+
+  "professional_experience": [],
+
+  "projects": [
+    {
+      "name": "FoodFlow — Food Sharing & Surplus Platform",
+      "live_link": "https://restuarent-website-flax.vercel.app/",
+      "technologies": "React.js, Node.js, Express.js, MongoDB, Firebase",
+      "bullets": [
+        "Built a food donation platform connecting food donors with communities to minimize food waste.",
+        "Implemented real-time request tracking, food availability listings, and secure user authentication."
+      ]
+    },
+    {
+      "name": "Blood Donation Application (SaaS)",
+      "live_link": "https://blood-connect-mmg.netlify.app/",
+      "technologies": "React.js, Node.js, Express.js, MongoDB, Firebase",
+      "bullets": [
+        "Implemented role-based dashboards for donors, volunteers, and administrators across 3 distinct tiers.",
+        "Built secure authentication system using Firebase, protecting all API routes and user sessions."
+      ]
+    },
+    {
+      "name": "Volans Clothing E-Commerce",
+      "live_link": "https://e-commerce-eta-kohl-38.vercel.app/",
+      "technologies": "Next.js 15, JavaScript, MongoDB, NextAuth.js, GSAP, Tailwind CSS",
+      "bullets": [
+        "Built with Next.js 15 App Router enabling server-side rendering and optimized page performance.",
+        "Developed a secure Admin Dashboard for product catalog management and order processing."
+      ]
+    },
+    {
+      "name": "Community Cleanliness & Camp Platform",
+      "live_link": "https://eco-report-mmg.netlify.app/",
+      "technologies": "React.js, Node.js, Express.js, MongoDB, Firebase",
+      "bullets": [
+        "Developed user authentication and event management features for tracking community campaigns."
+      ]
+    }
+  ],
+
+  "education": [
+    {
+      "degree": "Diploma",
+      "field": "Computer Science",
+      "institution": "Kushtia Polytechnic Institute",
+      "graduation_year": "2024 – Present"
+    }
+  ],
+
+  "certifications": []
+}

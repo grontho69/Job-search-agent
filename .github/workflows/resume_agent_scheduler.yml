@@ -1,0 +1,289 @@
+# ============================================================================
+# .github/workflows/resume_agent_scheduler.yml
+# ============================================================================
+# AI Resume Agent — Scheduled Execution Workflow
+# -----------------------------------------------
+# Triggers:
+#   - Scheduled cron: Weekdays at 9:00 AM UTC (adjust to your timezone)
+#   - Manual dispatch: Trigger from GitHub UI → Actions → Run workflow
+#
+# What this workflow does:
+#   1. Checks out the repository (including the latest processed_jobs.json)
+#   2. Installs Python dependencies on an Ubuntu runner (free GitHub-hosted)
+#   3. Exports GitHub Secrets as environment variables for the agent
+#   4. Runs core_orchestrator.py (the full scrape → screen → compile → email loop)
+#   5. Commits and pushes any changes to processed_jobs.json and output/ back
+#      to the repo, preserving state for the next scheduled run
+#
+# Required GitHub Repository Secrets (Settings → Secrets and variables → Actions):
+#   GROQ_API_KEY          — From https://console.groq.com/
+#   GEMINI_API_KEY        — From https://aistudio.google.com/app/apikey
+#   SMTP_SENDER_EMAIL     — Your Gmail address
+#   SMTP_APP_PASSWORD     — 16-char Gmail App Password (NOT your Gmail password)
+#   SMTP_RECIPIENT_EMAIL  — Where to send the tailored resumes
+#
+# Optional Secrets (all have sensible defaults):
+#   SEARCH_KEYWORDS       — Comma-separated terms, e.g. "Python Engineer,Data Engineer"
+#   SEARCH_LOCATION       — e.g. "Remote" or "New York, NY"
+#   SEARCH_MAX_JOBS       — Integer, max jobs per keyword per run (default: 50)
+# ============================================================================
+
+name: 🤖 AI Resume Agent — Daily Job Search
+
+on:
+  # -------------------------------------------------------------------------
+  # Scheduled trigger — Runs at 09:00 UTC, Monday through Friday.
+  # Cron format: minute hour day-of-month month day-of-week
+  # Adjust to your local morning by changing the hour (e.g., 03:00 UTC = 09:00 EST)
+  # -------------------------------------------------------------------------
+  schedule:
+    - cron: "0 9 * * 1-5"   # 9:00 AM UTC, Mon-Fri
+
+  # -------------------------------------------------------------------------
+  # Manual trigger — Run on-demand from the GitHub Actions UI.
+  # Supports custom search parameters without editing the workflow file.
+  # -------------------------------------------------------------------------
+  workflow_dispatch:
+    inputs:
+      search_keywords:
+        description: "Comma-separated job keywords (overrides default)"
+        required: false
+        default: ""
+      search_location:
+        description: "Job location filter (e.g., Remote, New York, NY)"
+        required: false
+        default: ""
+      max_jobs:
+        description: "Max jobs to scrape per keyword (default: 50)"
+        required: false
+        default: "50"
+      dry_run:
+        description: "Dry run — scrape and screen only, skip email"
+        type: boolean
+        required: false
+        default: false
+
+# ============================================================================
+# Permissions — Required for the Git push step at the end.
+# ============================================================================
+permissions:
+  contents: write   # Allow the workflow to push commits to the repository
+
+# ============================================================================
+# Concurrency — Prevent overlapping runs that could corrupt state.
+# ============================================================================
+concurrency:
+  group: resume-agent-${{ github.ref }}
+  cancel-in-progress: false   # Don't cancel running jobs; queue next one
+
+# ============================================================================
+jobs:
+# ============================================================================
+
+  run-resume-agent:
+    name: Search, Screen & Compile Resumes
+    runs-on: ubuntu-latest
+    timeout-minutes: 45   # Safety cap — pipeline should complete well under 30 min
+
+    steps:
+      # ----------------------------------------------------------------------
+      # Step 1: Check out the repository
+      # Fetches the latest code AND the committed processed_jobs.json state file.
+      # ----------------------------------------------------------------------
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1   # Shallow clone is sufficient; we only need HEAD
+
+      # ----------------------------------------------------------------------
+      # Step 2: Set up Python runtime
+      # Python 3.11 for full match-statement support and performance.
+      # ----------------------------------------------------------------------
+      - name: 🐍 Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"   # Cache pip dependencies across runs for faster startup
+
+      # ----------------------------------------------------------------------
+      # Step 3: Install dependencies
+      # Pin to specific versions for reproducibility in production environments.
+      # ----------------------------------------------------------------------
+      - name: 📦 Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            requests==2.32.3 \
+            beautifulsoup4==4.12.3 \
+            lxml==5.2.2 \
+            python-docx==1.1.2 \
+            groq==0.9.0 \
+            google-generativeai==0.7.2
+
+          echo "✅ Dependencies installed:"
+          pip list | grep -E "requests|beautifulsoup4|lxml|python-docx|groq|google-generativeai"
+
+      # ----------------------------------------------------------------------
+      # Step 4: Validate secrets are present before running
+      # Fails fast with a clear error rather than cryptic runtime failures.
+      # ----------------------------------------------------------------------
+      - name: 🔐 Validate Required Secrets
+        run: |
+          echo "Validating required secrets are configured..."
+
+          missing=0
+          for var in GROQ_API_KEY GEMINI_API_KEY SMTP_SENDER_EMAIL SMTP_APP_PASSWORD SMTP_RECIPIENT_EMAIL; do
+            if [ -z "${!var}" ]; then
+              echo "❌ Missing secret: $var"
+              missing=$((missing + 1))
+            else
+              echo "✅ Secret present: $var"
+            fi
+          done
+
+          if [ $missing -gt 0 ]; then
+            echo ""
+            echo "🚨 $missing required secret(s) missing. Configure them in:"
+            echo "   Repository → Settings → Secrets and variables → Actions → New repository secret"
+            exit 1
+          fi
+
+          echo "All required secrets are configured."
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SMTP_SENDER_EMAIL: ${{ secrets.SMTP_SENDER_EMAIL }}
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+          SMTP_RECIPIENT_EMAIL: ${{ secrets.SMTP_RECIPIENT_EMAIL }}
+
+      # ----------------------------------------------------------------------
+      # Step 5: Run the orchestrator
+      # All secrets are injected as environment variables. The orchestrator
+      # reads these via os.environ — no secrets ever appear in source code.
+      # ----------------------------------------------------------------------
+      - name: 🚀 Run AI Resume Agent
+        run: |
+          echo "Starting AI Resume Agent pipeline..."
+          echo "Run timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "Triggered by: ${{ github.event_name }}"
+          python core_orchestrator.py
+        env:
+          # ---- Required API Keys ----
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+          # ---- SMTP Email Configuration ----
+          SMTP_SENDER_EMAIL: ${{ secrets.SMTP_SENDER_EMAIL }}
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+          SMTP_RECIPIENT_EMAIL: ${{ secrets.SMTP_RECIPIENT_EMAIL }}
+
+          # ---- Search Parameters ----
+          # Prefer manual-dispatch inputs; fall back to secrets or defaults.
+          SEARCH_KEYWORDS: >-
+            ${{ github.event.inputs.search_keywords ||
+                secrets.SEARCH_KEYWORDS ||
+                'Full Stack Developer,MERN Stack Developer,React Developer,Next.js Developer,Frontend Developer' }}
+          SEARCH_LOCATION: >-
+            ${{ github.event.inputs.search_location ||
+                secrets.SEARCH_LOCATION ||
+                'Remote' }}
+          SEARCH_MAX_JOBS: ${{ github.event.inputs.max_jobs || '50' }}
+
+          # ---- Output Config ----
+          OUTPUT_DIR: "./output"
+
+      # ----------------------------------------------------------------------
+      # Step 6: Upload compiled resumes as workflow artifacts
+      # Makes DOCX files downloadable from the GitHub Actions UI for inspection
+      # without needing to check email.
+      # ----------------------------------------------------------------------
+      - name: 📤 Upload Compiled Resumes as Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()   # Run even if previous steps failed partially
+        with:
+          name: compiled-resumes-${{ github.run_id }}
+          path: |
+            output/*.docx
+            orchestrator.log
+          retention-days: 14   # Keep artifacts for 14 days
+          if-no-files-found: warn
+
+      # ----------------------------------------------------------------------
+      # Step 7: Upload orchestrator log as a separate artifact
+      # ----------------------------------------------------------------------
+      - name: 📋 Upload Pipeline Log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pipeline-log-${{ github.run_id }}
+          path: orchestrator.log
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # ----------------------------------------------------------------------
+      # Step 8: Commit and push updated state back to the repository
+      #
+      # CRITICAL: This step is what makes the stateful deduplication work.
+      #
+      # processed_jobs.json is updated with the IDs of all jobs processed in
+      # this run. By committing this file back to the repo with a bot identity,
+      # the next scheduled run will load the updated file and skip already-seen
+      # jobs, preventing duplicate resumes and email spam.
+      #
+      # The bot identity (github-actions[bot]) is a GitHub-native service
+      # account that doesn't require a separate PAT for pushing to the same repo.
+      # ----------------------------------------------------------------------
+      - name: 💾 Commit Updated State to Repository
+        if: always()   # Always run — persist state even if compilation failed for some jobs
+        run: |
+          # Configure Git with a bot identity.
+          # These credentials identify commits from automated workflows.
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Stage changes to the state file and any compiled output files.
+          git add processed_jobs.json || true    # 'true' prevents failure if file doesn't exist yet
+          git add output/ || true                # Stage compiled DOCX files if any were generated
+
+          # Only create a commit if there are staged changes.
+          # The --allow-empty flag is intentionally NOT used to keep the commit
+          # history clean (no empty "no changes" commits on runs with no new jobs).
+          if git diff --staged --quiet; then
+            echo "📭 No state changes to commit. (No new jobs processed on this run.)"
+          else
+            # Compose a descriptive commit message with run metadata.
+            COMMIT_MSG="chore(agent): update job state [$(date -u '+%Y-%m-%d %H:%M UTC')]
+
+          Run ID: ${{ github.run_id }}
+          Trigger: ${{ github.event_name }}
+          Workflow: ${{ github.workflow }}"
+
+            git commit -m "$COMMIT_MSG"
+
+            # Push using the workflow's GITHUB_TOKEN — no extra secrets needed.
+            git push origin HEAD:${{ github.ref_name }}
+
+            echo "✅ State committed and pushed to branch: ${{ github.ref_name }}"
+          fi
+
+      # ----------------------------------------------------------------------
+      # Step 9: Summarize run results in the GitHub Actions job summary
+      # This creates a markdown table visible in the Actions UI.
+      # ----------------------------------------------------------------------
+      - name: 📊 Write Job Summary
+        if: always()
+        run: |
+          echo "## 🤖 AI Resume Agent Run Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Run ID | \`${{ github.run_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Timestamp | $(date -u '+%Y-%m-%d %H:%M UTC') |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the pipeline log artifact for detailed results." >> $GITHUB_STEP_SUMMARY
+          if [ -f processed_jobs.json ]; then
+            TOTAL=$(python3 -c "import json; d=json.load(open('processed_jobs.json')); print(d.get('total_processed', 0))" 2>/dev/null || echo "N/A")
+            echo "| Total Lifetime Jobs Processed | $TOTAL |" >> $GITHUB_STEP_SUMMARY
+          fi

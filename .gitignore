@@ -1,0 +1,30 @@
+# .gitignore — Files that must NEVER be committed to Git
+# ============================================================
+
+# ---- CREDENTIALS — NEVER COMMIT ----
+.env
+.env.*
+*.env
+
+# ---- Compiled Resumes (personal data) ----
+output/
+*.docx
+
+# ---- Python cache ----
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# ---- Virtual environments ----
+venv/
+.venv/
+env/
+
+# ---- Logs ----
+*.log
+orchestrator.log
+
+# ---- OS junk ----
+.DS_Store
+Thumbs.db
