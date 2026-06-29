@@ -394,6 +394,17 @@ def run_pipeline() -> dict:
 
         newly_processed.add(job_id)
 
+        # Automatically cleanup local temporary CV files so they are NOT saved in the local system
+        try:
+            if os.path.exists(docx_path):
+                os.remove(docx_path)
+            pdf_path = docx_path.replace(".docx", ".pdf")
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+            logger.info("  Cleaned up local temporary CV files for %s", job_id)
+        except Exception:
+            pass
+
         if idx < len(jobs_to_process):
             time.sleep(JOB_PROCESSING_DELAY)
 
