@@ -163,9 +163,12 @@ def _save_processed_ids(ids: set, summary: dict) -> None:
         "total_processed": len(ids),
         "last_run_summary": summary,
     }
-    with open(PROCESSED_JOBS_PATH, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
-    logger.info("State saved: %d total processed jobs.", len(ids))
+    try:
+        with open(PROCESSED_JOBS_PATH, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+        logger.info("State saved: %d total processed jobs.", len(ids))
+    except Exception:
+        logger.info("Skipping processed_jobs.json save on read-only serverless environment.")
 
 
 # ---------------------------------------------------------------------------
