@@ -1,10 +1,11 @@
 """
 pdf_compiler.py
 ===============
-Strict Single-Page ATS PDF Resume Compiler for Mahathir Mohammad (v5)
-----------------------------------------------------------------------
+Strict Single-Page Executive ATS Resume Compiler for Mahathir Mohammad (v6)
+----------------------------------------------------------------------------
 Engineered specifically to guarantee a strict 1-Page layout with zero overflow,
-including the FoodFlow project, live hyperlinks, and executive typography.
+incorporating real profile data, FoodFlow & major projects, live working links,
+generous line spacing, and executive ATS typography.
 """
 
 import logging
@@ -25,7 +26,7 @@ def _clean_str(text: str) -> str:
         "”": '"',
         "‘": "'",
         "’": "'",
-        "•": "-",
+        "•": "•",
         "…": "...",
         "\u2013": "-",
         "\u2014": "-",
@@ -54,7 +55,7 @@ def compile_pdf_resume(profile: dict, output_pdf_path: str) -> str:
     pdf.set_auto_page_break(auto=False)  # Strict 1-page guard
     pdf.add_page()
 
-    # Color Palette
+    # Color Palette - Executive Dark Navy
     COLOR_NAME    = (26, 26, 46)     # Deep Navy
     COLOR_TITLE   = (30, 80, 150)    # Slate Blue
     COLOR_SECTION = (26, 26, 46)     # Section Header Navy
@@ -68,14 +69,14 @@ def compile_pdf_resume(profile: dict, output_pdf_path: str) -> str:
     pdf.set_text_color(*COLOR_NAME)
     pdf.cell(0, 7, name, new_x="LMARGIN", new_y="NEXT", align="C")
 
-    # 2. Professional Title
+    # 2. Professional Title (Target job headline)
     pdf.set_x(pdf.l_margin)
     title = _clean_str(profile.get("professional_title", "Full Stack Web Developer (MERN Stack)"))
-    pdf.set_font("Helvetica", "BI", 10)
+    pdf.set_font("Helvetica", "BI", 10.5)
     pdf.set_text_color(*COLOR_TITLE)
     pdf.cell(0, 5, title, new_x="LMARGIN", new_y="NEXT", align="C")
 
-    # 3. Contact Line with Hyperlinks
+    # 3. Contact Line with Active Hyperlinks
     pdf.set_x(pdf.l_margin)
     contact = profile.get("contact", {})
     c_items = []
@@ -104,7 +105,7 @@ def compile_pdf_resume(profile: dict, output_pdf_path: str) -> str:
     pdf.ln(5)
 
     def add_section_header(header_text):
-        pdf.ln(1.5)
+        pdf.ln(2.0)
         pdf.set_x(pdf.l_margin)
         pdf.set_font("Helvetica", "B", 10)
         pdf.set_text_color(*COLOR_SECTION)
@@ -112,7 +113,7 @@ def compile_pdf_resume(profile: dict, output_pdf_path: str) -> str:
         pdf.set_draw_color(210, 215, 220)
         pdf.set_line_width(0.3)
         pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
-        pdf.ln(1.5)
+        pdf.ln(2.0)
 
     # 4. Professional Summary
     summary = profile.get("summary")
@@ -121,7 +122,7 @@ def compile_pdf_resume(profile: dict, output_pdf_path: str) -> str:
         pdf.set_x(pdf.l_margin)
         pdf.set_font("Helvetica", "", 9)
         pdf.set_text_color(*COLOR_BODY)
-        pdf.multi_cell(pdf.epw, 4.2, _clean_str(summary))
+        pdf.multi_cell(pdf.epw, 4.5, _clean_str(summary))
 
     # 5. Technical Skills
     skills = profile.get("technical_skills", {})
@@ -136,13 +137,13 @@ def compile_pdf_resume(profile: dict, output_pdf_path: str) -> str:
             
             pdf.set_font("Helvetica", "B", 9)
             pdf.set_text_color(*COLOR_SECTION)
-            pdf.write(4.0, _clean_str(f"{category}: "))
+            pdf.write(4.3, _clean_str(f"{category}: "))
             
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(*COLOR_BODY)
-            pdf.write(4.0, f"{items_str}\n")
+            pdf.write(4.3, f"{items_str}\n")
 
-    # 6. Projects (Including FoodFlow)
+    # 6. Projects (Including FoodFlow & major projects)
     projects = profile.get("projects", [])
     if projects:
         add_section_header("Projects")
@@ -154,27 +155,27 @@ def compile_pdf_resume(profile: dict, output_pdf_path: str) -> str:
             
             pdf.set_font("Helvetica", "B", 9.5)
             pdf.set_text_color(*COLOR_NAME)
-            pdf.write(4.2, f"- {p_name}")
+            pdf.write(4.5, f"- {p_name}")
             
             if p_link:
                 pdf.set_font("Helvetica", "BU", 8.5)
                 pdf.set_text_color(*COLOR_LINK)
-                pdf.write(4.2, "  [Live Demo]", link=_clean_str(p_link))
+                pdf.write(4.5, "  [Live Demo]", link=_clean_str(p_link))
                 
             if p_tech:
                 pdf.set_font("Helvetica", "I", 8.5)
                 pdf.set_text_color(*COLOR_TITLE)
-                pdf.write(4.2, f"  ({p_tech})")
-            pdf.ln(4.2)
+                pdf.write(4.5, f"  ({p_tech})")
+            pdf.ln(4.5)
 
             bullets = proj.get("bullets", [])
             for b in bullets:
                 pdf.set_x(pdf.l_margin + 2)
                 pdf.set_font("Helvetica", "", 8.8)
                 pdf.set_text_color(*COLOR_BODY)
-                pdf.cell(3.5, 3.8, "-", new_x="RIGHT", new_y="LAST")
-                pdf.multi_cell(pdf.epw - 5.5, 3.8, _clean_str(b))
-            pdf.ln(1.0)
+                pdf.cell(3.5, 4.0, "-", new_x="RIGHT", new_y="LAST")
+                pdf.multi_cell(pdf.epw - 5.5, 4.0, _clean_str(b))
+            pdf.ln(1.2)
 
     # 7. Education
     education = profile.get("education", [])
@@ -189,7 +190,7 @@ def compile_pdf_resume(profile: dict, output_pdf_path: str) -> str:
             
             pdf.set_font("Helvetica", "B", 9)
             pdf.set_text_color(*COLOR_NAME)
-            pdf.cell(0, 4.2, f"{degree} in {field} - {inst} ({year})", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 4.5, f"{degree} in {field} - {inst} ({year})", new_x="LMARGIN", new_y="NEXT")
 
     pdf.output(output_pdf_path)
     logger.info("Single-page ATS PDF compiled cleanly (%d page): %s", pdf.page_no(), output_pdf_path)
