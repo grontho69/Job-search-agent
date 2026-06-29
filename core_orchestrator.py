@@ -118,6 +118,20 @@ JOB_PROCESSING_DELAY = 2
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _sanitize_professional_title(raw_title: str) -> str:
+    """Clean raw scraped LinkedIn titles into crisp, professional ATS headlines."""
+    if not raw_title:
+        return "Full Stack Web Developer (MERN Stack)"
+    import re
+    cleaned = raw_title.strip()
+    cleaned = re.sub(r"(?i)^(we're looking for|hiring|wanted|urgent|we are looking for)\s+", "", cleaned)
+    cleaned = re.split(r"(?i)\s*[-|–—]\s*(for|job\s*id|remote|full\s*time|part\s*time)", cleaned)[0]
+    cleaned = cleaned.strip(" -–—:|!")
+    if len(cleaned) >= 4 and len(cleaned) <= 45:
+        return cleaned
+    return "Full Stack Web Developer (MERN Stack)"
+
+
 def _get_todays_output_dir() -> Path:
     """Return and create today's dated output folder: output/YYYY-MM-DD/"""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -362,8 +376,8 @@ def run_pipeline() -> dict:
         gemini_ok = result.get("tailored_profile") is not None
         # Make a shallow copy of the profile so we don't mutate base_profile globally
         profile_to_compile = dict(result.get("tailored_profile") or base_profile)
-        # Set the exact target job title as the CV headline for this specific job
-        profile_to_compile["professional_title"] = title
+        # Set a clean, professional ATS title as the CV headline for this specific job
+        profile_to_compile["professional_title"] = _sanitize_professional_title(title)
 
         if gemini_ok:
             stats["gemini_tailored"] += 1
