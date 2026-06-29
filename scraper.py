@@ -203,6 +203,7 @@ def scrape_job_listings(
             "keywords": keywords,
             "location": location,
             "start": offset,
+            "f_WT": "2",  # Strict LinkedIn Remote workplace filter
             "f_TPR": "r604800",  # Past week filter to surface fresh postings
         }
 

@@ -104,7 +104,11 @@ SEARCH_KEYWORDS = [
     if kw.strip()
 ]
 
-SEARCH_LOCATION = os.environ.get("SEARCH_LOCATION", "Remote")
+SEARCH_LOCATIONS = [
+    loc.strip()
+    for loc in os.environ.get("SEARCH_LOCATION", "Bangladesh, Remote").split(",")
+    if loc.strip()
+]
 
 # Seconds between processing each job (avoids API hammering).
 JOB_PROCESSING_DELAY = 2
@@ -237,23 +241,23 @@ def run_pipeline() -> dict:
     seen_ids: set = set()
     candidate_jobs: list = []
 
-    for keyword in SEARCH_KEYWORDS:
-        if len(candidate_jobs) >= DAILY_JOB_LIMIT * 2:
-            # We have more than enough candidates; stop scraping early
-            break
+    for location in SEARCH_LOCATIONS:
+        for keyword in SEARCH_KEYWORDS:
+            if len(candidate_jobs) >= DAILY_JOB_LIMIT * 2:
+                break
 
-        logger.info("  Searching: '%s' | Location: '%s'", keyword, SEARCH_LOCATION)
-        try:
-            raw = scrape_job_listings(
-                keywords=keyword,
-                location=SEARCH_LOCATION,
-                max_results=FETCH_PER_KEYWORD,
-            )
-        except Exception as exc:
-            msg = f"Scrape failed for '{keyword}': {exc}"
-            logger.error(msg)
-            stats["errors"].append(msg)
-            continue
+            logger.info("  Searching Remote Jobs: '%s' in '%s'", keyword, location)
+            try:
+                raw = scrape_job_listings(
+                    keywords=keyword,
+                    location=location,
+                    max_results=FETCH_PER_KEYWORD,
+                )
+            except Exception as exc:
+                msg = f"Scrape failed for '{keyword}' in '{location}': {exc}"
+                logger.error(msg)
+                stats["errors"].append(msg)
+                continue
 
         stats["total_scraped"] += len(raw)
 
