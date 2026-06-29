@@ -182,32 +182,36 @@ def append_job_row(
         status,
     ]
 
-    # 1. Always write to local Excel backup
-    wb, ws = _load_or_create_excel()
-    next_row = ws.max_row + 1
-    row_fill = FILL_GREEN if score >= 0.90 else (FILL_YELLOW if score >= 0.75 else FILL_WHITE)
+    # 1. Write to local Excel backup if environment is writable
+    next_row = 1
+    try:
+        wb, ws = _load_or_create_excel()
+        next_row = ws.max_row + 1
+        row_fill = FILL_GREEN if score >= 0.90 else (FILL_YELLOW if score >= 0.75 else FILL_WHITE)
 
-    for col_idx, value in enumerate(row_data, start=1):
-        cell = ws.cell(row=next_row, column=col_idx, value=value)
-        cell.fill   = row_fill
-        cell.border = THIN_BORDER
-        cell.alignment = CENTER if col_idx in (1, 2, 7, 10, 11) else LEFT
+        for col_idx, value in enumerate(row_data, start=1):
+            cell = ws.cell(row=next_row, column=col_idx, value=value)
+            cell.fill   = row_fill
+            cell.border = THIN_BORDER
+            cell.alignment = CENTER if col_idx in (1, 2, 7, 10, 11) else LEFT
 
-        if col_idx == 6 and url:
-            cell.hyperlink = url
-            cell.font      = FONT_LINK
-        elif col_idx == 9 and cv_abs_path:
-            try:
-                cell.hyperlink = Path(cv_abs_path).resolve().as_uri()
+            if col_idx == 6 and url:
+                cell.hyperlink = url
                 cell.font      = FONT_LINK
-            except Exception:
+            elif col_idx == 9 and cv_abs_path:
+                try:
+                    cell.hyperlink = Path(cv_abs_path).resolve().as_uri()
+                    cell.font      = FONT_LINK
+                except Exception:
+                    cell.font = FONT_BODY
+            else:
                 cell.font = FONT_BODY
-        else:
-            cell.font = FONT_BODY
 
-    ws.row_dimensions[next_row].height = 18
-    wb.save(TRACKER_FILE)
-    logger.info("Logged to Excel backup row %d | %s @ %s", next_row, title, company)
+        ws.row_dimensions[next_row].height = 18
+        wb.save(TRACKER_FILE)
+        logger.info("Logged to Excel backup row %d | %s @ %s", next_row, title, company)
+    except Exception as ee:
+        logger.info("Skipping local Excel backup write on read-only serverless environment.")
 
     # 2. Sync to Google Sheets if configured (via Webhook or Service Account)
     webhook_url = os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL")
@@ -285,19 +289,22 @@ def write_run_summary(
     resumes_compiled: int,
     errors: list,
 ) -> None:
-    wb, ws = _load_or_create_excel()
-    next_row = ws.max_row + 1
-    summary_text = (
-        f"--- Run Summary ({datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}) | "
-        f"Scraped: {total_scraped} | New: {new_jobs} | "
-        f"Passed: {passed_screening} | CVs: {resumes_compiled} | "
-        f"Errors: {len(errors)} ---"
-    )
-    cell = ws.cell(row=next_row, column=1, value=summary_text)
-    cell.font = Font(name="Calibri", bold=True, italic=True, size=9, color="666666")
-    cell.fill = PatternFill("solid", fgColor="E8EAF6")
-    ws.merge_cells(start_row=next_row, start_column=1, end_row=next_row, end_column=len(COLUMNS))
-    wb.save(TRACKER_FILE)
+    try:
+        wb, ws = _load_or_create_excel()
+        next_row = ws.max_row + 1
+        summary_text = (
+            f"--- Run Summary ({datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}) | "
+            f"Scraped: {total_scraped} | New: {new_jobs} | "
+            f"Passed: {passed_screening} | CVs: {resumes_compiled} | "
+            f"Errors: {len(errors)} ---"
+        )
+        cell = ws.cell(row=next_row, column=1, value=summary_text)
+        cell.font = Font(name="Calibri", bold=True, italic=True, size=9, color="666666")
+        cell.fill = PatternFill("solid", fgColor="E8EAF6")
+        ws.merge_cells(start_row=next_row, start_column=1, end_row=next_row, end_column=len(COLUMNS))
+        wb.save(TRACKER_FILE)
+    except Exception:
+        pass
 
     webhook_url = os.environ.get("GOOGLE_SHEETS_WEBHOOK_URL")
     if webhook_url:

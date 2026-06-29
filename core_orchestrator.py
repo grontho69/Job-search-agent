@@ -47,23 +47,34 @@ from groq import Groq
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
+handlers = [logging.StreamHandler(sys.stdout)]
+try:
+    handlers.append(logging.FileHandler("orchestrator.log", encoding="utf-8"))
+except Exception:
+    pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("orchestrator.log", encoding="utf-8"),
-    ],
+    handlers=handlers,
 )
 logger = logging.getLogger("orchestrator")
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-BASE_PROFILE_PATH  = Path("base_profile.json")
+import tempfile
+BASE_PROFILE_PATH   = Path("base_profile.json")
 PROCESSED_JOBS_PATH = Path("processed_jobs.json")
-OUTPUT_BASE_DIR    = Path("output")
+
+try:
+    test_dir = Path("output")
+    test_dir.mkdir(parents=True, exist_ok=True)
+    OUTPUT_BASE_DIR = test_dir
+except Exception:
+    OUTPUT_BASE_DIR = Path(tempfile.gettempdir()) / "output"
+    OUTPUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Configuration
