@@ -1,6 +1,22 @@
 {
-  "processed_job_ids": [],
-  "last_updated": null,
-  "total_processed": 0,
-  "last_run_summary": {}
+  "processed_job_ids": [
+    "4434078864",
+    "4434085791",
+    "4434256892",
+    "4434274050",
+    "4434416638"
+  ],
+  "last_updated": "2026-06-30T11:45:36.717026+00:00",
+  "total_processed": 5,
+  "last_run_summary": {
+    "total_scraped": 5,
+    "skipped_duplicate": 0,
+    "new_jobs": 5,
+    "below_threshold": 5,
+    "passed_screening": 0,
+    "resumes_compiled": 0,
+    "gemini_tailored": 0,
+    "gsheets_rows_added": 5,
+    "errors": []
+  }
 }
