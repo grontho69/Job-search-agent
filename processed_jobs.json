@@ -6,17 +6,17 @@
     "4434274050",
     "4434416638"
   ],
-  "last_updated": "2026-06-30T11:45:36.717026+00:00",
+  "last_updated": "2026-07-01T12:06:42.032881+00:00",
   "total_processed": 5,
   "last_run_summary": {
-    "total_scraped": 5,
+    "total_scraped": 0,
     "skipped_duplicate": 0,
-    "new_jobs": 5,
-    "below_threshold": 5,
+    "new_jobs": 0,
+    "below_threshold": 0,
     "passed_screening": 0,
     "resumes_compiled": 0,
     "gemini_tailored": 0,
-    "gsheets_rows_added": 5,
+    "gsheets_rows_added": 0,
     "errors": []
   }
 }
