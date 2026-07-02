@@ -1,22 +1,27 @@
 {
   "processed_job_ids": [
+    "4433591118",
+    "4433865405",
     "4434078864",
     "4434085791",
     "4434256892",
     "4434274050",
-    "4434416638"
+    "4434416638",
+    "4434996028",
+    "4435546179",
+    "4435579473"
   ],
-  "last_updated": "2026-07-01T12:06:42.032881+00:00",
-  "total_processed": 5,
+  "last_updated": "2026-07-02T11:33:57.888448+00:00",
+  "total_processed": 10,
   "last_run_summary": {
-    "total_scraped": 0,
+    "total_scraped": 5,
     "skipped_duplicate": 0,
-    "new_jobs": 0,
-    "below_threshold": 0,
+    "new_jobs": 5,
+    "below_threshold": 5,
     "passed_screening": 0,
     "resumes_compiled": 0,
     "gemini_tailored": 0,
-    "gsheets_rows_added": 0,
+    "gsheets_rows_added": 5,
     "errors": []
   }
 }
