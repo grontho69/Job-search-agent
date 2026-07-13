@@ -49,6 +49,10 @@ SHEET_NAME   = "Job Tracker"
 GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "1PQMwFgu_C_3AZOEec4I61dG2jpjvLYUYsBLNGlF4taI")
 SERVICE_ACCOUNT_FILE = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account.json")
 
+# Password that locks the Excel workbook — read from .env / environment.
+# Anyone who opens job_tracker.xlsx will be prompted for this password.
+EXCEL_PASSWORD = os.environ.get("EXCEL_PASSWORD", "Mahathir@2025#Secure")
+
 COLUMNS = [
     ("Date",            14),
     ("Job ID",          14),
@@ -88,6 +92,49 @@ LEFT   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
 # Excel Setup
 # ---------------------------------------------------------------------------
 
+def _apply_sheet_protection(ws) -> None:
+    """
+    Lock every cell in the sheet so the content cannot be edited without
+    the correct password.  Readers can still scroll and copy — they just
+    cannot modify or delete any data.
+    """
+    from openpyxl.worksheet.protection import SheetProtection
+    ws.protection = SheetProtection(
+        password=EXCEL_PASSWORD,
+        sheet=True,               # enable sheet protection
+        selectLockedCells=False,  # allow selecting (so readers can read/copy)
+        selectUnlockedCells=False,
+        formatCells=True,
+        formatColumns=True,
+        formatRows=True,
+        insertColumns=True,
+        insertRows=True,
+        insertHyperlinks=True,
+        deleteColumns=True,
+        deleteRows=True,
+        sort=True,
+        autoFilter=True,
+        pivotTables=True,
+    )
+
+
+def _save_protected_workbook(wb: Workbook, ws) -> None:
+    """
+    Apply sheet protection and workbook-level write-protection, then save.
+    Called instead of wb.save() everywhere so protection is never skipped.
+    """
+    # Sheet-level: prevent cell editing
+    _apply_sheet_protection(ws)
+
+    # Workbook-level: require password to open the file at all
+    wb.security.workbookPassword = EXCEL_PASSWORD
+    wb.security.lockStructure    = True   # prevent adding/deleting sheets
+    wb.security.lockWindows      = False  # allow resizing the window
+
+    wb.save(TRACKER_FILE)
+    logger.debug("Workbook saved with password protection.")
+
+
 def _create_excel_workbook() -> Workbook:
     wb = Workbook()
     ws = wb.active
@@ -103,7 +150,7 @@ def _create_excel_workbook() -> Workbook:
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
     ws.row_dimensions[1].height = 22
-    wb.save(TRACKER_FILE)
+    _save_protected_workbook(wb, ws)
     return wb
 
 
@@ -208,7 +255,7 @@ def append_job_row(
                 cell.font = FONT_BODY
 
         ws.row_dimensions[next_row].height = 18
-        wb.save(TRACKER_FILE)
+        _save_protected_workbook(wb, ws)
         logger.info("Logged to Excel backup row %d | %s @ %s", next_row, title, company)
     except Exception as ee:
         logger.info("Skipping local Excel backup write on read-only serverless environment.")
@@ -302,7 +349,7 @@ def write_run_summary(
         cell.font = Font(name="Calibri", bold=True, italic=True, size=9, color="666666")
         cell.fill = PatternFill("solid", fgColor="E8EAF6")
         ws.merge_cells(start_row=next_row, start_column=1, end_row=next_row, end_column=len(COLUMNS))
-        wb.save(TRACKER_FILE)
+        _save_protected_workbook(wb, ws)
     except Exception:
         pass
 

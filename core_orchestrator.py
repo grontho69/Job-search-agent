@@ -81,13 +81,13 @@ except Exception:
 # ---------------------------------------------------------------------------
 
 # Target: fetch this many unique new jobs total per run.
-DAILY_JOB_LIMIT = 15
+DAILY_JOB_LIMIT = 10
 
 # Minimum Groq score to proceed to CV compilation (80% as requested).
 PASS_THRESHOLD = 0.80
 
-# Jobs to request per keyword from LinkedIn (we over-fetch then cap at DAILY_JOB_LIMIT).
-FETCH_PER_KEYWORD = 5
+# Jobs to request per keyword from LinkedIn (over-fetch so dedup still yields DAILY_JOB_LIMIT).
+FETCH_PER_KEYWORD = 8
 
 # The 6 job categories to search — exactly as requested.
 SEARCH_KEYWORDS = [
@@ -273,22 +273,25 @@ def run_pipeline() -> dict:
                 stats["errors"].append(msg)
                 continue
 
-        stats["total_scraped"] += len(raw)
+            # ---- FIX: these must be INSIDE the keyword loop ----
+            stats["total_scraped"] += len(raw)
 
-        for job in raw:
-            jid = job.get("id")
-            if not jid:
-                continue
-            if jid in processed_ids:
-                stats["skipped_duplicate"] += 1
-                continue
-            if jid in seen_ids:
-                # Deduplicate within this run (same job found by 2 keywords)
-                continue
-            seen_ids.add(jid)
-            candidate_jobs.append(job)
+            for job in raw:
+                jid = job.get("id")
+                if not jid:
+                    continue
+                if jid in processed_ids:
+                    # Already applied / seen in a previous run — skip it
+                    stats["skipped_duplicate"] += 1
+                    logger.debug("  Skipping already-processed job ID: %s", jid)
+                    continue
+                if jid in seen_ids:
+                    # Deduplicate within this run (same job found by 2 keywords)
+                    continue
+                seen_ids.add(jid)
+                candidate_jobs.append(job)
 
-        logger.info("  Candidates so far: %d unique new jobs", len(candidate_jobs))
+            logger.info("  Candidates so far: %d unique new jobs", len(candidate_jobs))
 
     # Cap at daily limit
     jobs_to_process = candidate_jobs[:DAILY_JOB_LIMIT]
@@ -479,7 +482,7 @@ def run_pipeline() -> dict:
 if __name__ == "__main__":
     try:
         summary = run_pipeline()
-        logger.info("🛑 [AUTOMATIC STOP] 15 jobs completed. Agent shutting down cleanly.")
+        logger.info("🛑 [AUTOMATIC STOP] 10 jobs completed. Agent shutting down cleanly.")
         sys.exit(0)
     except KeyboardInterrupt:
         logger.info("Interrupted by user.")
