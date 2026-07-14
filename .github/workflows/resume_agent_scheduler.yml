@@ -59,15 +59,13 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_SHEETS_WEBHOOK_URL: ${{ secrets.GOOGLE_SHEETS_WEBHOOK_URL }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          USER_PROFILE_JSON: ${{ secrets.USER_PROFILE_JSON }}
           SEARCH_KEYWORDS: ${{ github.event.inputs.search_keywords || 'Full Stack Web Developer,Junior Web Developer,MERN Stack Web Developer,Frontend Web Developer,React Developer,JavaScript Web Developer' }}
           SEARCH_LOCATION: 'Remote'
           OUTPUT_DIR: "./output"
 
-      - name: 💾 Commit & Push State Changes
-        if: always()
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add processed_jobs.json job_tracker.xlsx output/ || true
-          git diff --staged --quiet || git commit -m "chore: auto-update agent state [skip ci]"
-          git push || true
+      # NOTE: job_tracker.xlsx and processed_jobs.json are in .gitignore
+      # and are NEVER committed — they contain personal job application data.
+      # Each user manages their own state via their private Vercel/GitHub environment.
+

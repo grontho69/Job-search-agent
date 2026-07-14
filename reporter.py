@@ -3,11 +3,11 @@ reporter.py
 ===========
 Dual Job Tracker — Local Excel + Google Sheets
 ----------------------------------------------
-Target Google Sheet ID: 1PQMwFgu_C_3AZOEec4I61dG2jpjvLYUYsBLNGlF4taI
+Target Google Sheet ID: YOUR_GOOGLE_SHEET_ID
 
 Records every job processed by the agent into:
   1. Local Excel workbook (job_tracker.xlsx) — always saved as guaranteed backup
-  2. Google Sheets (1PQMwFgu_C_3AZOEec4I61dG2jpjvLYUYsBLNGlF4taI) — live online sync
+  2. Google Sheets (YOUR_GOOGLE_SHEET_ID) — live online sync
 
 Dependencies:
     pip install openpyxl gspread
@@ -46,12 +46,12 @@ logger = logging.getLogger("reporter")
 # ---------------------------------------------------------------------------
 TRACKER_FILE = Path("job_tracker.xlsx")
 SHEET_NAME   = "Job Tracker"
-GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "1PQMwFgu_C_3AZOEec4I61dG2jpjvLYUYsBLNGlF4taI")
+GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "")  # Set GOOGLE_SHEET_ID in your environment variables
 SERVICE_ACCOUNT_FILE = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account.json")
 
 # Password that locks the Excel workbook — read from .env / environment.
 # Anyone who opens job_tracker.xlsx will be prompted for this password.
-EXCEL_PASSWORD = os.environ.get("EXCEL_PASSWORD", "Mahathir@2025#Secure")
+EXCEL_PASSWORD = os.environ.get("EXCEL_PASSWORD", "ChangeMe@2025#Secure")
 
 COLUMNS = [
     ("Date",            14),

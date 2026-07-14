@@ -141,13 +141,64 @@ def _get_todays_output_dir() -> Path:
 
 
 def _load_base_profile() -> dict:
-    if not BASE_PROFILE_PATH.exists():
-        logger.critical("base_profile.json not found. Exiting.")
-        sys.exit(1)
-    with open(BASE_PROFILE_PATH, "r", encoding="utf-8") as f:
-        profile = json.load(f)
-    logger.info("Profile loaded for: %s", profile.get("name", "Unknown"))
-    return profile
+    """
+    Load the user's profile.
+
+    Priority order (highest → lowest):
+      1. USER_PROFILE_JSON environment variable  — set privately in Vercel / GitHub Secrets.
+         This is the correct path for all deployed users. No personal data ever touches the repo.
+      2. base_profile.json on disk               — blank template only; exits if no real data.
+
+    This design ensures zero personal data is stored in the Git repository.
+    Every user keeps their profile in their own private environment variable.
+    """
+    # ── Priority 1: environment variable (Vercel / GitHub Secrets) ──────────
+    raw_env = os.environ.get("USER_PROFILE_JSON", "").strip()
+    if raw_env:
+        try:
+            profile = json.loads(raw_env)
+            name = profile.get("name", "").strip()
+            if name:
+                logger.info("Profile loaded from USER_PROFILE_JSON env var for: %s", name)
+
+                # Apply agent config overrides from the profile if present
+                agent_cfg = profile.get("_agent_config", {})
+                if agent_cfg.get("search_keywords"):
+                    global SEARCH_KEYWORDS
+                    SEARCH_KEYWORDS = agent_cfg["search_keywords"]
+                    logger.info("Keywords overridden from profile: %s", SEARCH_KEYWORDS)
+                if agent_cfg.get("search_location"):
+                    global SEARCH_LOCATIONS
+                    SEARCH_LOCATIONS = [agent_cfg["search_location"]]
+                if agent_cfg.get("daily_job_limit"):
+                    global DAILY_JOB_LIMIT
+                    DAILY_JOB_LIMIT = int(agent_cfg["daily_job_limit"])
+                if agent_cfg.get("pass_threshold"):
+                    global PASS_THRESHOLD
+                    PASS_THRESHOLD = float(agent_cfg["pass_threshold"])
+
+                return profile
+        except (json.JSONDecodeError, Exception) as exc:
+            logger.error("Failed to parse USER_PROFILE_JSON: %s", exc)
+
+    # ── Priority 2: base_profile.json (blank template fallback) ─────────────
+    if BASE_PROFILE_PATH.exists():
+        try:
+            with open(BASE_PROFILE_PATH, "r", encoding="utf-8") as f:
+                profile = json.load(f)
+            name = profile.get("name", "").strip()
+            if name:
+                logger.info("Profile loaded from base_profile.json for: %s", name)
+                return profile
+        except Exception as exc:
+            logger.error("Failed to read base_profile.json: %s", exc)
+
+    # ── No valid profile found ───────────────────────────────────────────────
+    logger.critical(
+        "No profile configured. Set the USER_PROFILE_JSON environment variable "
+        "in Vercel / GitHub Secrets, or visit /setup on your deployed dashboard."
+    )
+    sys.exit(1)
 
 
 def _load_processed_ids() -> set:
@@ -472,7 +523,7 @@ def run_pipeline() -> dict:
     if stats["errors"]:
         logger.warning("  Errors:                   %d", len(stats["errors"]))
     logger.info("  Output folder:            %s", output_dir.absolute())
-    logger.info("  Google Sheet ID:          1PQMwFgu_C_3AZOEec4I61dG2jpjvLYUYsBLNGlF4taI")
+    logger.info("  Google Sheet ID:          %s", os.environ.get("GOOGLE_SHEET_ID", "(not set — add GOOGLE_SHEET_ID env var)"))
     logger.info("=" * 60)
 
     return stats

@@ -1,274 +1,261 @@
-# 🤖 AI Resume Agent — Zero-Cost LinkedIn Job Search & ATS Resume Generator
+# 🤖 AI Job Search Agent
 
-> **Automatically search LinkedIn → screen jobs with AI → compile tailored ATS resumes → email them to yourself — completely free, every weekday.**
+> **Clone → Deploy → Fill your profile → Get 10 tailored CVs in your Google Sheet every day. Fully automated. Completely free.**
 
-[![GitHub Actions](https://img.shields.io/badge/Powered%20By-GitHub%20Actions-2088FF?logo=github-actions&logoColor=white)](https://github.com/features/actions)
-[![Groq](https://img.shields.io/badge/Stage%201-Groq%20AI-F55036?logo=groq&logoColor=white)](https://console.groq.com/)
-[![Gemini](https://img.shields.io/badge/Stage%202-Google%20Gemini-4285F4?logo=google&logoColor=white)](https://aistudio.google.com/)
-
----
-
-## 📋 Table of Contents
-
-- [Architecture Overview](#-architecture-overview)
-- [File Structure](#-file-structure)
-- [How It Works](#-how-it-works)
-- [Setup Instructions](#-setup-instructions)
-- [Configuration Reference](#-configuration-reference)
-- [API Key Acquisition](#-api-key-acquisition)
-- [Gmail App Password Setup](#-gmail-app-password-setup)
-- [ATS Resume Design Decisions](#-ats-resume-design-decisions)
-- [Troubleshooting](#-troubleshooting)
+[![GitHub Actions](https://img.shields.io/badge/Scheduler-GitHub%20Actions-2088FF?logo=github-actions&logoColor=white)](https://github.com/features/actions)
+[![Vercel](https://img.shields.io/badge/Dashboard-Vercel-000000?logo=vercel&logoColor=white)](https://vercel.com)
+[![Groq](https://img.shields.io/badge/Stage%201-Groq%20AI-F55036?logoColor=white)](https://console.groq.com/)
+[![Gemini](https://img.shields.io/badge/Stage%202-Gemini%202.5%20Flash-4285F4?logo=google&logoColor=white)](https://aistudio.google.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
-## 🏗 Architecture Overview
+## What It Does
+
+Every weekday at 9 AM UTC, the agent automatically:
+
+1. 🔍 **Searches LinkedIn** for jobs posted in the last 24 hours using your keywords
+2. 🧠 **Screens with Groq AI** — scores each job 0–100% against your profile
+3. ✂️ **Skips low-match jobs** — only processes jobs above your threshold (default 80%)
+4. ✨ **Tailors your CV with Gemini** — rewrites your summary & skills to match each job exactly
+5. 📄 **Compiles an ATS-safe DOCX resume** — single-column, no tables, Calibri font
+6. 📊 **Logs everything to Google Sheets** — job title, company, AI score, rationale, CV link
+7. 🔁 **Never repeats jobs** — tracks applied job IDs so you always get fresh listings
+
+---
+
+## Quick Start (5 Minutes)
+
+### Step 1 — Fork & Clone
+
+```bash
+git clone https://github.com/YOUR_USERNAME/ai-job-search.git
+cd ai-job-search
+```
+
+### Step 2 — Deploy to Vercel
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/YOUR_USERNAME/ai-job-search)
+
+Or manually:
+```bash
+npm i -g vercel
+vercel --prod
+```
+
+### Step 3 — Get Your Free API Keys
+
+| Key | Where to Get | Free Limit |
+|-----|-------------|-----------|
+| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com/) → API Keys | 14,400 req/day |
+| `GEMINI_API_KEY` | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) | 1,500 req/day |
+
+### Step 4 — Set Up Google Sheets Output
+
+1. Create a new [Google Sheet](https://sheets.new)
+2. Copy the Sheet ID from the URL: `https://docs.google.com/spreadsheets/d/`**`YOUR_SHEET_ID`**`/edit`
+3. Open **Extensions → Apps Script**, paste this webhook code and deploy as web app:
+
+```javascript
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents);
+    const sheet = SpreadsheetApp.openById(data.sheet_id).getSheets()[0];
+    if (data.row) sheet.appendRow(data.row);
+    return ContentService.createTextOutput(JSON.stringify({status:"ok"}))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch(err) {
+    return ContentService.createTextOutput(JSON.stringify({status:"error",msg:err.toString()}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+```
+4. **Deploy → New deployment → Web app → Execute as: Me → Who has access: Anyone** → Copy the web app URL
+
+### Step 5 — Add Environment Variables to Vercel
+
+In your Vercel project → **Settings → Environment Variables**, add:
+
+| Variable | Value |
+|----------|-------|
+| `GROQ_API_KEY` | Your Groq key |
+| `GEMINI_API_KEY` | Your Gemini key |
+| `GOOGLE_SHEET_ID` | Your Sheet ID |
+| `GOOGLE_SHEETS_WEBHOOK_URL` | Your Apps Script web app URL |
+| `USER_PROFILE_JSON` | *(generated in Step 6)* |
+
+### Step 6 — Fill Your Profile
+
+1. Visit your deployed Vercel URL
+2. You'll see the **Setup Wizard** — it walks you through:
+   - ✅ API key status check
+   - 👤 Personal info (name, email, LinkedIn, GitHub)
+   - 💼 Professional summary & technical skills
+   - 🚀 Your projects
+   - 🔍 Job keywords & search settings
+3. Click **"Generate My Profile JSON"**
+4. Copy the generated JSON
+5. Add it as `USER_PROFILE_JSON` in Vercel Environment Variables
+6. Redeploy → visit your URL → you now see your **personalized dashboard** ✅
+
+### Step 7 — Set Up GitHub Actions (for daily automation)
+
+In your GitHub repo → **Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret | Value |
+|--------|-------|
+| `GROQ_API_KEY` | Your Groq key |
+| `GEMINI_API_KEY` | Your Gemini key |
+| `GOOGLE_SHEETS_WEBHOOK_URL` | Your Apps Script web app URL |
+| `GOOGLE_SHEET_ID` | Your Sheet ID |
+| `USER_PROFILE_JSON` | Same JSON from Step 6 |
+
+The agent runs **automatically Mon–Fri at 9:00 AM UTC**. To test immediately:
+**Actions → 🤖 AI Resume Agent — Daily Job Search → Run workflow**
+
+---
+
+## Architecture
 
 ```
-GitHub Actions (cron: weekdays 9 AM UTC)
+GitHub Actions (cron: Mon-Fri 9 AM UTC)
         │
         ▼
 core_orchestrator.py
         │
-        ├──► scraper.py          ── LinkedIn Guest API → Job listings (no auth needed)
-        │         │
-        │         └──► scrape_job_description() ── Full job description text
+        ├── Reads YOUR profile from USER_PROFILE_JSON env var (never from repo)
+        │
+        ├──► scraper.py
+        │       └── LinkedIn Guest API (no auth) — 24h posts only — 6 keywords
         │
         ├──► matcher.py
-        │         ├── Stage 1: Groq (qwen-qwq-32b) ── Fast relevance score (0.0–1.0)
-        │         │              └── score < 0.75 → SKIP (saves Gemini quota)
-        │         └── Stage 2: Gemini 2.5 Flash ── Tailor profile JSON to job
+        │       ├── Stage 1: Groq AI — relevance score 0.0–1.0 (fast, free)
+        │       │              └── score < threshold → SKIP
+        │       └── Stage 2: Gemini 2.5 Flash — tailor profile JSON to job
         │
-        ├──► compiler.py         ── python-docx + OpenXML → ATS-safe .docx
+        ├──► compiler.py — python-docx + OpenXML → ATS-safe .docx resume
         │
-        ├──► notifier.py         ── smtplib → Gmail SMTP → Email with DOCX attachment
-        │
-        └──► processed_jobs.json ── Git-committed state (prevents re-processing)
+        └──► reporter.py — append row to YOUR Google Sheet via webhook
 ```
+
+**Dashboard** (Vercel): Status page + manual trigger. Runs in the browser.  
+**Scheduler** (GitHub Actions): Full pipeline with no time limits.
+
+> ⚠️ Vercel has a 60-second execution limit. Use GitHub Actions for the full automated pipeline.
 
 ---
 
-## 📁 File Structure
+## Privacy & Data Safety
+
+| Data | Stored Where | In Git Repo? |
+|------|-------------|-------------|
+| Your name, email, skills | `USER_PROFILE_JSON` Vercel env var | ❌ Never |
+| Applied job IDs | `processed_jobs.json` (local only) | ❌ Gitignored |
+| Job history | `job_tracker.xlsx` (local only) | ❌ Gitignored |
+| API keys | Vercel env vars / GitHub Secrets | ❌ Never |
+| Compiled CVs | Temp files, deleted after upload | ❌ Never |
+
+**The Git repository contains zero personal data.** Every user's profile, job history and credentials stay in their own private environment.
+
+---
+
+## Configuration Reference
+
+### Job Search Settings (inside your profile JSON `_agent_config`)
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `search_keywords` | — | List of job titles to search |
+| `search_location` | `"Remote"` | Location filter |
+| `daily_job_limit` | `10` | Max unique jobs per run |
+| `pass_threshold` | `0.80` | Min AI score to compile CV (0.0–1.0) |
+
+### Changing the Schedule
+
+Edit `.github/workflows/resume_agent_scheduler.yml`:
+```yaml
+- cron: "0 9 * * 1-5"    # 9 AM UTC, Mon–Fri (default)
+- cron: "0 14 * * 1-5"   # 9 AM EST (UTC−5)
+- cron: "0 2 * * 1-5"    # 9 AM ICT (UTC+7)
+- cron: "0 3 * * 1-5"    # 9 AM WIB (UTC+7) / Bangladesh (UTC+6) → 0 3
+- cron: "0 9 * * *"      # Daily including weekends
+```
+
+### AI Models Used
+
+| Stage | Model | Purpose |
+|-------|-------|---------|
+| Screening | `llama-3.3-70b-versatile` (Groq) | Score job relevance |
+| Tailoring | `gemini-2.5-flash` (Google) | Rewrite CV for each job |
+| Fallback | `llama-3.1-8b-instant` (Groq) | Tailoring if Gemini quota exceeded |
+
+---
+
+## ATS Resume Design
+
+The compiled `.docx` is optimized for Applicant Tracking Systems:
+
+- **Single-column layout** — ATS reads top-to-bottom; multi-column scrambles content
+- **Calibri font** — universally in ATS font tables; no substitution errors  
+- **OpenXML borders** (`w:pBdr`) — semantic dividers, not images
+- **0.75-inch margins** — max content density within professional standards
+- **No tables, text boxes, or images** — anything that confuses ATS parsers is excluded
+
+---
+
+## File Structure
 
 ```
 ai-job-search/
-├── scraper.py                              # LinkedIn guest API job extraction
-├── matcher.py                              # Dual-stage AI screening & profile tailoring
-├── compiler.py                             # ATS-optimized DOCX resume compiler
-├── notifier.py                             # SMTP email delivery with DOCX attachment
-├── core_orchestrator.py                    # Stateful pipeline controller
-├── base_profile.json                       # ← YOUR PROFILE — edit this!
-├── processed_jobs.json                     # Auto-managed state (do not edit)
-├── requirements.txt                        # Pinned Python dependencies
-├── output/                                 # Compiled DOCX resumes (auto-created)
-└── .github/
-    └── workflows/
-        ├── resume_agent_scheduler.yml      # Main cron job (weekdays 9 AM UTC)
-        └── keep_awake_huggingface.yml      # HuggingFace Space keep-alive (2x/day)
+├── api/
+│   └── index.py              # Vercel dashboard + onboarding wizard
+├── .github/
+│   └── workflows/
+│       └── resume_agent_scheduler.yml   # GitHub Actions cron
+├── scraper.py                # LinkedIn guest API scraper (24h filter)
+├── matcher.py                # Dual-stage AI screening & CV tailoring
+├── compiler.py               # ATS-optimized DOCX compiler
+├── pdf_compiler.py           # PDF version compiler
+├── reporter.py               # Google Sheets + Excel logging
+├── core_orchestrator.py      # Main pipeline controller
+├── base_profile.json         # Blank template (your data lives in env var)
+├── processed_jobs.json       # Applied job IDs (gitignored, local only)
+├── requirements.txt          # Python dependencies
+├── vercel.json               # Vercel routing config
+├── .env.example              # Environment variable template
+└── .gitignore                # Protects all personal data from Git
 ```
 
 ---
 
-## ⚙️ How It Works
+## Troubleshooting
 
-### Stage 1 — Groq Pre-Screening (Fast & Free)
-Every scraped job is scored 0.0–1.0 for relevance against your profile summary using **Groq's** high-throughput free API. Jobs scoring below **0.75** are skipped, conserving Gemini quota. Only the best matches proceed.
+**"No profile configured" error**  
+→ Add `USER_PROFILE_JSON` to your Vercel/GitHub environment variables. Visit `/setup` on your dashboard.
 
-### Stage 2 — Gemini Tailoring (Precise & Factual)
-For high-scoring jobs, **Gemini 2.5 Flash** rewrites your profile JSON to:
-- Lead the summary with your most relevant skills for that specific role
-- Transform passive duty descriptions into achievement-oriented bullets
-- Align exact keywords from the job description where your experience supports it
-- **Never fabricate skills, companies, or metrics not in your original profile**
+**"No jobs found" on every run**  
+→ LinkedIn's guest API gets rate-limited by IP. GitHub Actions uses rotating IPs — works better than local. Try different keywords.
 
-### ATS-Safe Compilation
-`compiler.py` uses `python-docx` with raw OpenXML injection to produce a document that:
-- Uses a **strict single-column layout** (no tables, columns, or text boxes)
-- Applies **0.75-inch margins** and Calibri/Arial fonts
-- Injects **`w:pBdr/w:bottom` XML borders** for section dividers (not images)
-- Reads sequentially by ATS parsers — your content won't be scrambled
+**"Stage 2 tailoring returned None"**  
+→ Gemini free tier (15 req/min) hit. The agent automatically falls back to Groq for tailoring — CVs still compile.
 
-### Stateful Deduplication
-`processed_jobs.json` is **committed back to your repository** after each run. On the next scheduled run, this file is loaded and already-processed job IDs are skipped, preventing duplicate resumes and email spam across GitHub Actions' ephemeral runners.
+**Google Sheet not updating**  
+→ Check the webhook URL is correct and the Apps Script is deployed as "Anyone can access". Re-deploy the Apps Script if needed.
 
----
-
-## 🚀 Setup Instructions
-
-### 1. Fork or Clone This Repository
-```bash
-git clone https://github.com/yourusername/ai-job-search.git
-cd ai-job-search
-```
-
-### 2. Edit Your Profile
-Open `base_profile.json` and replace all placeholder values with your real information:
-- `name`, `contact` — your name and contact details
-- `summary` — a dense, keyword-rich professional summary (critical for Stage 1 scoring)
-- `technical_skills` — grouped by category; only list skills you actually have
-- `professional_experience` — real companies, dates, and quantified achievements
-- `education`, `certifications`, `projects` — factual information only
-
-> ⚠️ **Important:** The AI is instructed to never add skills or experiences not present in your profile. The quality of your `base_profile.json` directly determines the quality of output resumes.
-
-### 3. Configure GitHub Repository Secrets
-
-Navigate to: **Repository → Settings → Secrets and variables → Actions → New repository secret**
-
-| Secret Name | Value | Where to Get It |
-|---|---|---|
-| `GROQ_API_KEY` | Your Groq API key | [console.groq.com](https://console.groq.com/) |
-| `GEMINI_API_KEY` | Your Gemini API key | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) |
-| `SMTP_SENDER_EMAIL` | Your Gmail address | Your Gmail account |
-| `SMTP_APP_PASSWORD` | 16-char App Password | See [Gmail App Password Setup](#-gmail-app-password-setup) |
-| `SMTP_RECIPIENT_EMAIL` | Where to receive resumes | Any email address |
-| `HUGGINGFACE_SPACE_URL` | Your HF Space URL | Optional — your HF Space |
-
-**Optional search configuration secrets:**
-
-| Secret Name | Default | Example |
-|---|---|---|
-| `SEARCH_KEYWORDS` | `Python Developer,Data Engineer,...` | `"Software Engineer,ML Engineer"` |
-| `SEARCH_LOCATION` | `Remote` | `"San Francisco, CA"` |
-| `SEARCH_MAX_JOBS` | `50` | `"100"` |
-
-### 4. Enable GitHub Actions
-Ensure Actions are enabled: **Repository → Settings → Actions → General → Allow all actions**
-
-### 5. Run Manually to Test
-Go to **Actions → 🤖 AI Resume Agent — Daily Job Search → Run workflow** to trigger an immediate test run before waiting for the scheduled cron.
-
----
-
-## 🔑 API Key Acquisition
-
-### Groq API Key (Free)
-1. Visit [console.groq.com](https://console.groq.com/) and sign up
-2. Navigate to **API Keys** → **Create API Key**
-3. Copy the key (shown only once) — add as `GROQ_API_KEY` secret
-
-**Free tier limits:** 30 requests/minute, 14,400 requests/day — more than sufficient.
-
-### Google Gemini API Key (Free)
-1. Visit [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
-2. Click **Create API Key** → select a GCP project (or create one)
-3. Copy the key — add as `GEMINI_API_KEY` secret
-
-**Free tier limits:** 15 requests/minute, 1,500 requests/day (Gemini 2.5 Flash).  
-The Groq pre-screening filter ensures you'll only use Gemini for 10–20% of scraped jobs.
-
----
-
-## 📧 Gmail App Password Setup
-
-Standard Gmail passwords are **blocked by Google** for third-party SMTP apps. You must use a 16-character App Password:
-
-1. Ensure **2-Step Verification** is enabled on your Gmail account:  
-   [myaccount.google.com/security](https://myaccount.google.com/security)
-
-2. Generate an App Password:  
-   [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
-   - Select app: **Mail**
-   - Select device: **Other (Custom name)** → type `AI Resume Agent`
-   - Click **Generate**
-
-3. Copy the 16-character password (spaces are optional, copy as-is)
-
-4. Add as the `SMTP_APP_PASSWORD` GitHub secret
-
----
-
-## 🎯 ATS Resume Design Decisions
-
-### Why Single-Column Layout?
-ATS (Applicant Tracking Systems) read documents linearly — top to bottom, left to right. Multi-column layouts, text boxes, and table-based formatting cause parsers to read columns out of order, mixing content from different sections. Single-column ensures your experience reads correctly.
-
-### Why OpenXML Borders Instead of Images?
-Section dividers created as images are often ignored or incorrectly parsed by ATS. The `w:pBdr` XML approach creates semantic paragraph borders that ATS engines treat as structural separators, not images.
-
-### Why Calibri/Arial?
-These fonts are built into the default font tables of all major ATS systems. Unusual fonts either substitute to Times New Roman (changing spacing) or cause character rendering errors.
-
-### Why 0.75-Inch Margins?
-Standard margins maximize content density while remaining within professional norms. Narrower margins can cause ATS margin parsers to clip content; wider margins waste space.
-
----
-
-## ⚙️ Configuration Reference
-
-### Adjusting the Cron Schedule
-Edit `.github/workflows/resume_agent_scheduler.yml`:
-```yaml
-schedule:
-  - cron: "0 9 * * 1-5"   # 9:00 AM UTC, Mon-Fri
-```
-Common alternatives:
-- `"0 14 * * 1-5"` — 9:00 AM EST (UTC-5)
-- `"0 1 * * 1-5"` — 9:00 AM SGT (UTC+8)
-- `"0 9 * * *"` — Daily including weekends
-
-### Adjusting the Relevance Threshold
-Edit the `PASS_THRESHOLD` constant in both `matcher.py` and `core_orchestrator.py`:
-```python
-PASS_THRESHOLD = 0.75   # Increase to 0.85 for stricter filtering
-```
-
-### Changing the Groq Model
-Edit `matcher.py`:
-```python
-GROQ_MODEL_PRIMARY = "llama-3.3-70b-versatile"   # More powerful
-GROQ_MODEL_PRIMARY = "llama-3.1-8b-instant"       # Faster, lower quota usage
-```
-
----
-
-## 🔧 Troubleshooting
-
-### "No jobs found" on every run
-- LinkedIn's guest API may be temporarily rate-limited — wait 24 hours
-- Check the runner IP isn't blocked — try different keywords
-- Inspect the `orchestrator.log` artifact in Actions for detailed output
-
-### "Stage 2 tailoring returned None"
-- Gemini 2.5 Flash may be hitting the 15 RPM free-tier limit
-- Reduce `SEARCH_MAX_JOBS` to decrease the number of concurrent API calls
-- The orchestrator falls back to the base profile for compilation — resumes still send
-
-### SMTP Authentication Error
-- Confirm `SMTP_APP_PASSWORD` is the 16-char App Password, NOT your Gmail password
-- Re-generate the App Password if it was accidentally exposed
-- Verify 2-Step Verification is still active on your Gmail account
-
-### "processed_jobs.json not committed"
-- Ensure the workflow has `permissions: contents: write`
-- Check the "Commit Updated State" step logs in Actions for Git errors
-- Verify the repository's branch protection rules allow bot commits
-
-### Running Locally
+**Running locally**
 ```bash
 pip install -r requirements.txt
-
-# Set environment variables
-export GROQ_API_KEY="your_groq_key"
-export GEMINI_API_KEY="your_gemini_key"
-export SMTP_SENDER_EMAIL="you@gmail.com"
-export SMTP_APP_PASSWORD="your_app_password"
-export SMTP_RECIPIENT_EMAIL="recipient@email.com"
-
-# Optional overrides
-export SEARCH_KEYWORDS="Python Developer,Backend Engineer"
-export SEARCH_LOCATION="Remote"
-export SEARCH_MAX_JOBS="10"   # Lower for local testing
-
+cp .env.example .env
+# Edit .env with your real keys and USER_PROFILE_JSON
 python core_orchestrator.py
 ```
 
 ---
 
-## 📜 License
+## License
 
 MIT — Free for personal and commercial use.
 
 ---
 
-> **Ethical Note:** This tool queries LinkedIn's publicly-indexed guest API endpoints — the same surfaces crawled by search engines. All scraping includes randomized delays to avoid rate limit abuse. Use responsibly and in accordance with LinkedIn's Terms of Service.
+> **Ethical note:** This tool queries LinkedIn's publicly-indexed guest API — the same endpoints crawled by search engines like Google. All requests include randomized delays to avoid rate-limit abuse. Use responsibly and in accordance with LinkedIn's Terms of Service.

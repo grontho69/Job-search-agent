@@ -1,7 +1,7 @@
 """
 pdf_compiler.py
 ===============
-Executive Single-Page ATS Resume Compiler for Mahathir Mohammad (v7 - Perfect Balance)
+Executive Single-Page ATS Resume Compiler (v7 - Perfect Balance)
 -------------------------------------------------------------------------------------
 Single-column executive layout with zero overflow, perfectly balanced vertical spacing,
 clean project headings (no hyphen prefix), active live hyperlinks, and rich ATS typography.
@@ -63,7 +63,7 @@ def compile_pdf_resume(profile: dict, output_pdf_path: str) -> str:
 
     # 1. Candidate Name
     pdf.set_x(pdf.l_margin)
-    name = _clean_str(profile.get("name", "Mahathir Mohammad"))
+    name = _clean_str(profile.get("name", "Candidate"))
     pdf.set_font("Helvetica", "B", 20)
     pdf.set_text_color(*COLOR_NAME)
     pdf.cell(0, 8, name, new_x="LMARGIN", new_y="NEXT", align="C")

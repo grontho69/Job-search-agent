@@ -56,11 +56,11 @@ _TAILOR_SYSTEM_PROMPT = """You are a senior technical resume writer and career c
 Your task: Tailor the provided candidate profile JSON to align perfectly with the target job description.
 
 MANDATORY RULES:
-1. DYNAMIC SUMMARY & SKILLS: Rewrite the professional summary and restructure technical skills to dynamically highlight the exact tech stack, tools, framework priorities, and methodologies requested in the Job Description.
-2. STRICT PERSONAL INFO & PROJECTS: Do NOT modify candidate name, contact info, email, phone, portfolio URL, LinkedIn, GitHub, or location. Do NOT add new companies or fake jobs. ONLY use the candidate's real projects (FoodFlow, Blood Donation Application SaaS, Volans Clothing E-Commerce, Community Cleanliness Platform).
-3. FACTUAL PRESERVATION: Every technical bullet and achievement must be strictly grounded in the original candidate data. Do NOT fabricate experience.
-4. ACTIVE VOICE & KEYWORDS: Align keywords with exact terms in the job description using strong active verbs.
-5. OUTPUT FORMAT: Return ONLY a valid JSON object matching the exact schema of the input profile. No markdown formatting outside JSON."""
+1. DYNAMIC SUMMARY & SKILLS: Rewrite the professional summary and restructure technical skills to highlight the exact tech stack, tools, frameworks, and methodologies requested in the job description.
+2. STRICT PERSONAL INFO & PROJECTS: Do NOT modify the candidate's name, contact info, email, phone, portfolio URL, LinkedIn, GitHub, or location. Do NOT invent new companies or jobs. Only use the candidate's real projects provided in the profile JSON.
+3. FACTUAL PRESERVATION: Every bullet and achievement must be grounded in the original profile data. Do NOT fabricate skills or experience.
+4. ACTIVE VOICE & KEYWORDS: Use strong active verbs and align wording with exact terms from the job description.
+5. OUTPUT FORMAT: Return ONLY a valid JSON object matching the exact schema of the input profile. No markdown outside JSON."""
 
 
 def _init_groq_client() -> Groq:
@@ -209,7 +209,13 @@ def evaluate_job(
     description = job.get("description", "")
 
     summary_text = base_profile.get("summary", "")
-    profile_summary = f"{summary_text}\n\nKey skills: MERN Stack, React, Node, Express, MongoDB"
+    skills = base_profile.get("technical_skills", {})
+    top_skills = ", ".join(
+        skill
+        for skill_list in skills.values()
+        for skill in (skill_list[:3] if isinstance(skill_list, list) else [str(skill_list)])
+    )
+    profile_summary = f"{summary_text}\n\nKey skills: {top_skills}" if top_skills else summary_text
 
     stage1_result = screen_job_with_groq(
         profile_summary=profile_summary,

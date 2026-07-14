@@ -1,79 +1,35 @@
 {
-  "_comment": "Real profile for Mahathir Mohammad — Executive Single-Page ATS Edition.",
+  "_comment": "TEMPLATE — Replace nothing here. Fill your profile through the web UI at /setup after deploying to Vercel.",
+  "_instructions": "This file is a blank template. Your real profile is stored in the USER_PROFILE_JSON environment variable (set via Vercel). Do NOT put personal data in this file.",
 
-  "name": "Mahathir Mohammad",
-  "professional_title": "Full Stack Web Developer (MERN Stack)",
+  "name": "",
+  "professional_title": "",
 
   "contact": {
-    "email": "mahathirm880@gmail.com",
-    "phone": "+880 1301563161",
-    "portfolio": "https://devmahathir.netlify.app/",
-    "linkedin": "https://www.linkedin.com/in/mahathir-mohammad-4073b33b2/",
-    "github": "https://github.com/grontho69",
-    "location": "Kushtia, Khulna, Bangladesh"
+    "email": "",
+    "phone": "",
+    "portfolio": "",
+    "linkedin": "",
+    "github": "",
+    "location": ""
   },
 
-  "summary": "Full Stack JavaScript Developer with hands-on experience architecting and deploying responsive web applications using the MERN stack (React.js, Next.js, Node.js, Express.js, MongoDB). Proven track record of developing scalable SaaS platforms, e-commerce applications, and role-based administrative dashboards. Passionate about writing clean, maintainable code, implementing secure authentication, and optimizing frontend performance for high user engagement.",
+  "summary": "",
 
-  "technical_skills": {
-    "Frontend Development": ["React.js", "Next.js 15 (App Router)", "JavaScript (ES6+)", "GSAP Animations", "Tailwind CSS", "HTML5", "CSS3", "Responsive Web Design"],
-    "Backend & Databases": ["Node.js", "Express.js", "RESTful API Architecture", "MongoDB", "Mongoose ORM", "Firebase Authentication", "NextAuth.js"],
-    "Tools & Workflow": ["Git", "GitHub", "Vercel Deployment", "Netlify", "Figma to Code", "Postman", "Clean Code Practices", "Problem Solving"]
-  },
+  "technical_skills": {},
 
   "professional_experience": [],
 
-  "projects": [
-    {
-      "name": "FoodFlow — Food Sharing & Surplus Reduction Platform",
-      "live_link": "https://restuarent-website-flax.vercel.app/",
-      "technologies": "React.js, Node.js, Express.js, MongoDB, Firebase Authentication",
-      "bullets": [
-        "Architected a full-stack web application connecting surplus food donors with community organizations to eliminate local food waste.",
-        "Engineered real-time request tracking, food availability listings, and secure user authentication with fine-grained access permissions.",
-        "Designed fully responsive user interfaces optimized for mobile and desktop devices, achieving fast page render times and smooth user flows."
-      ]
-    },
-    {
-      "name": "Blood Donation Application (SaaS Platform)",
-      "live_link": "https://blood-connect-mmg.netlify.app/",
-      "technologies": "React.js, Node.js, Express.js, MongoDB, Firebase Authentication",
-      "bullets": [
-        "Implemented role-based dashboards for donors, volunteers, and administrators, establishing secure multi-tier access control across the system.",
-        "Built robust token-based authentication and authorization using Firebase, protecting sensitive user medical data and private API endpoints.",
-        "Developed full-stack RESTful APIs handling emergency donation requests, automated volunteer dispatch coordination, and admin management."
-      ]
-    },
-    {
-      "name": "Volans Clothing — E-Commerce Web Application",
-      "live_link": "https://e-commerce-eta-kohl-38.vercel.app/",
-      "technologies": "Next.js 15, JavaScript, MongoDB, NextAuth.js, GSAP, Tailwind CSS",
-      "bullets": [
-        "Leveraged Next.js 15 App Router to build a modern multi-page architecture with server-side rendering (SSR) for enhanced SEO and performance.",
-        "Integrated NextAuth.js credentials provider to manage secure customer authentication, shopping cart state, and session persistence.",
-        "Developed a comprehensive Admin Dashboard for secure product inventory control, catalog management, and real-time customer order processing."
-      ]
-    },
-    {
-      "name": "Community Cleanliness & Camp Management Platform",
-      "live_link": "https://eco-report-mmg.netlify.app/",
-      "technologies": "React.js, Node.js, Express.js, MongoDB, Firebase Authentication",
-      "bullets": [
-        "Created an interactive event management platform for organizing and tracking community environmental cleanliness campaigns.",
-        "Designed intuitive reporting workflows allowing volunteers to log activity, upload field updates, and view regional impact metrics.",
-        "Optimized client-side rendering and component state management for cross-browser reliability and low network latency."
-      ]
-    }
-  ],
+  "projects": [],
 
-  "education": [
-    {
-      "degree": "Diploma in Computer Science & Engineering",
-      "field": "Computer Science",
-      "institution": "Kushtia Polytechnic Institute",
-      "graduation_year": "2024 – Present"
-    }
-  ],
+  "education": [],
 
-  "certifications": []
+  "certifications": [],
+
+  "_agent_config": {
+    "search_keywords": [],
+    "search_location": "Remote",
+    "daily_job_limit": 10,
+    "pass_threshold": 0.80
+  }
 }

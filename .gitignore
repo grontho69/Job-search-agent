@@ -1,14 +1,29 @@
 # .gitignore — Files that must NEVER be committed to Git
 # ============================================================
 
+# ---- AI Agent tooling (local only) ----
+.agents/
+
 # ---- CREDENTIALS — NEVER COMMIT ----
 .env
 .env.*
 *.env
+service_account.json
 
-# ---- Compiled Resumes (personal data) ----
+# ---- PERSONAL DATA — NEVER COMMIT ----
+# job_tracker.xlsx contains real job application history (private)
+job_tracker.xlsx
+
+# processed_jobs.json contains applied job IDs (user-specific state)
+processed_jobs.json
+
+# Any resume files compiled from personal profiles
 output/
 *.docx
+*.pdf
+
+# Personal resume PDFs (never commit)
+*.pdf
 
 # ---- Python cache ----
 __pycache__/
@@ -21,7 +36,7 @@ venv/
 .venv/
 env/
 
-# ---- Logs ----
+# ---- Logs (contain personal job data) ----
 *.log
 orchestrator.log
 

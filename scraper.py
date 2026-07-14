@@ -1,442 +1,220 @@
 """
-scraper.py
-==========
-LinkedIn Guest API Job Scraper
--------------------------------
-Extracts job listings from LinkedIn's public guest endpoint without authentication.
-Uses LinkedIn's dynamic search API surface (the same surface indexed by Google),
-which has a significantly lower anti-detection threshold than browser automation.
+scraper.py — LinkedIn Guest API Job Scraper
 
-Strategy:
-  - Paginate via the `start` offset parameter in batches of 25.
-  - Rotate User-Agent headers to simulate different browser clients.
-  - Apply randomized delays between requests to avoid triggering rate limits.
-  - Parse HTML responses with BeautifulSoup + lxml for robust extraction.
-
-Dependencies:
-    pip install requests beautifulsoup4 lxml
+Scrapes job listings from LinkedIn's public guest endpoint without authentication.
+Paginates via the `start` offset, rotates User-Agents, applies random delays,
+and filters results to the last 24 hours only.
 """
 
-import time
-import random
 import logging
+import random
+import re
+import time
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup
 
-# ---------------------------------------------------------------------------
-# Logging Setup
-# ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger("scraper")
+logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
+# ── Constants ─────────────────────────────────────────────────────────────────
 
-# LinkedIn's public guest job-search API endpoint.
-# This surface is indexed by Google and has relaxed anti-scraping compared
-# to the main authenticated site, making it suitable for lightweight polling.
-GUEST_API_BASE = (
-    "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
-)
-
-# LinkedIn's public job detail page — used to fetch full descriptions.
-JOB_DETAIL_BASE = "https://www.linkedin.com/jobs/view/{job_id}/"
-
-# Batch size enforced by LinkedIn's guest API.
+GUEST_API_BASE = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 BATCH_SIZE = 25
-
-# Seconds to wait between page requests (randomized within this range).
-DELAY_MIN = 2.0
-DELAY_MAX = 5.0
-
-# ---------------------------------------------------------------------------
-# User-Agent Pool
-# ---------------------------------------------------------------------------
-# Rotating among multiple common browser User-Agent strings prevents a single
-# fingerprint from being flagged by LinkedIn's rate-limiting heuristics.
+DELAY_MIN  = 2.0
+DELAY_MAX  = 5.0
 
 USER_AGENTS = [
-    # Chrome 124 on Windows
-    (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    # Chrome 123 on macOS
-    (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/123.0.0.0 Safari/537.36"
-    ),
-    # Firefox 125 on Linux
-    (
-        "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) "
-        "Gecko/20100101 Firefox/125.0"
-    ),
-    # Safari 17 on macOS
-    (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) "
-        "AppleWebKit/605.1.15 (KHTML, like Gecko) "
-        "Version/17.4.1 Safari/605.1.15"
-    ),
-    # Edge 124 on Windows
-    (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0"
-    ),
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
 ]
 
 
-def _get_headers() -> dict:
-    """
-    Build a randomized HTTP header block.
+# ── Private helpers ───────────────────────────────────────────────────────────
 
-    Selects a random User-Agent and populates Accept/Accept-Language headers
-    to mimic a genuine browser request and avoid bot-detection heuristics.
-
-    Returns:
-        dict: A headers dictionary ready to pass to requests.get().
-    """
+def _headers() -> dict:
     return {
         "User-Agent": random.choice(USER_AGENTS),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
-        # Signals to LinkedIn that the request comes from their own domain
-        # (guest job listing pages legitimately set this referer).
         "Referer": "https://www.linkedin.com/jobs/search/",
     }
 
 
-def _random_delay() -> None:
-    """
-    Sleep for a randomized duration within [DELAY_MIN, DELAY_MAX] seconds.
+def _delay() -> None:
+    time.sleep(random.uniform(DELAY_MIN, DELAY_MAX))
 
-    This prevents predictable request cadences that trigger rate-limit
-    detection systems and simulates human-like browsing behaviour.
-    """
-    delay = random.uniform(DELAY_MIN, DELAY_MAX)
-    logger.debug("Sleeping for %.2f seconds before next request.", delay)
-    time.sleep(delay)
+
+def _extract_job_id(url: str) -> Optional[str]:
+    """Parse the numeric job ID from a LinkedIn job URL."""
+    if not url:
+        return None
+    for part in reversed(url.rstrip("/").split("/")):
+        suffix = part.split("-")[-1]
+        if suffix.isdigit():
+            return suffix
+    return None
 
 
 def _is_within_24h(card) -> bool:
     """
-    Return True only if the job card was posted within the last 24 hours.
+    Return True if the job card was posted within the last 24 hours.
 
-    LinkedIn embeds an ISO-8601 datetime in every card's <time> element:
-        <time datetime="2026-07-13T08:30:00.000Z">2 hours ago</time>
-
-    Strategy (two-step):
-      1. Try to parse the machine-readable `datetime` attribute for an exact
-         UTC comparison — most reliable.
-      2. Fall back to parsing the human-readable text ("X hours ago",
-         "Just now", "X minutes ago") when the attribute is absent or
-         malformed — covers edge cases in LinkedIn's HTML variants.
-
-    Returns True (accept) when the posting age cannot be determined at all,
-    so we never accidentally discard a job just because LinkedIn omitted
-    the timestamp tag.
-
-    Args:
-        card: A BeautifulSoup Tag representing one job card <li>.
-
-    Returns:
-        bool — True if the job is fresh (≤24 h old) or age is unknown.
-                False if the job is confirmed to be older than 24 hours.
+    Checks the ISO-8601 datetime attribute on the <time> tag first,
+    then falls back to parsing the human-readable text. Returns True
+    (accept) when no timestamp is found to avoid discarding valid jobs.
     """
-    from datetime import datetime, timezone, timedelta
-    import re
-
-    CUTOFF = timedelta(hours=24)
+    cutoff = timedelta(hours=24)
     now    = datetime.now(timezone.utc)
 
-    # -- Step 1: machine-readable datetime attribute -------------------------
     time_tag = card.find("time")
-    if time_tag:
-        dt_attr = time_tag.get("datetime", "")
-        if dt_attr:
-            try:
-                # Handle both Z-suffix and +00:00 offset forms.
-                posted_at = datetime.fromisoformat(dt_attr.replace("Z", "+00:00"))
-                age = now - posted_at
-                if age > CUTOFF:
-                    logger.debug(
-                        "Skipping old job (posted %s, age %s).",
-                        dt_attr, age
-                    )
-                    return False
-                return True
-            except ValueError:
-                pass  # Fall through to text-based check
+    if not time_tag:
+        return True
 
-        # -- Step 2: human-readable text fallback ----------------------------
-        text = time_tag.get_text(strip=True).lower()
-
-        # Accept unambiguously fresh labels
-        if any(kw in text for kw in ("just now", "moment", "second", "minute")):
+    # Step 1: exact datetime attribute
+    dt_attr = time_tag.get("datetime", "")
+    if dt_attr:
+        try:
+            posted_at = datetime.fromisoformat(dt_attr.replace("Z", "+00:00"))
+            if now - posted_at > cutoff:
+                logger.debug("Skipping old job (age %s).", now - posted_at)
+                return False
             return True
+        except ValueError:
+            pass
 
-        # Accept if posted X hours ago (≤23 h)
-        hour_match = re.search(r"(\d+)\s*hour", text)
-        if hour_match:
-            return int(hour_match.group(1)) <= 23
+    # Step 2: human-readable text fallback
+    text = time_tag.get_text(strip=True).lower()
+    if any(kw in text for kw in ("just now", "moment", "second", "minute")):
+        return True
+    hour_match = re.search(r"(\d+)\s*hour", text)
+    if hour_match:
+        return int(hour_match.group(1)) <= 23
+    if any(kw in text for kw in ("day", "week", "month", "year")):
+        logger.debug("Skipping old job: '%s'.", text)
+        return False
 
-        # Reject if explicitly older than 1 day
-        day_match = re.search(r"(\d+)\s*day", text)
-        if day_match:
-            logger.debug("Skipping old job: '%s'.", text)
-            return False
-
-        # "week", "month", "year" → definitely old
-        if any(kw in text for kw in ("week", "month", "year")):
-            logger.debug("Skipping old job: '%s'.", text)
-            return False
-
-    # No timestamp found — accept the card (don't discard on uncertainty)
-    return True
+    return True  # unknown age — accept
 
 
-def _extract_job_id(url: str) -> Optional[str]:
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def scrape_job_listings(keywords: str, location: str, max_results: int = 100) -> list[dict]:
     """
-    Parse the numeric LinkedIn job ID from a full job URL.
+    Scrape LinkedIn job listings (24-hour posts only).
 
-    LinkedIn job URLs follow patterns such as:
-      https://www.linkedin.com/jobs/view/1234567890/
-      https://www.linkedin.com/jobs/view/software-engineer-at-google-1234567890
-
-    The job ID is always the last numeric segment of the path.
-
-    Args:
-        url: Raw href extracted from the job listing anchor tag.
-
-    Returns:
-        The job ID string if found, otherwise None.
+    Returns a list of job dicts with keys:
+        id, title, company, location, url, description (empty — filled later)
     """
-    if not url:
-        return None
-    # Split the URL path by "/" and find the last purely-numeric segment.
-    parts = url.rstrip("/").split("/")
-    for part in reversed(parts):
-        # Job IDs are numeric strings, sometimes embedded at the end of slugs.
-        # Handle slugified IDs like "software-engineer-at-google-1234567890".
-        numeric_suffix = part.split("-")[-1]
-        if numeric_suffix.isdigit():
-            return numeric_suffix
-    return None
-
-
-def scrape_job_listings(
-    keywords: str,
-    location: str,
-    max_results: int = 100,
-) -> list[dict]:
-    """
-    Scrape job listings from LinkedIn's guest search API.
-
-    Paginates through results in batches of 25 using the `start` offset
-    parameter, collecting structured metadata for each listing found.
-
-    Args:
-        keywords:    Search query string (e.g., "Python Developer").
-        location:    Geographic filter (e.g., "Remote" or "New York, NY").
-        max_results: Maximum number of job listings to collect before stopping.
-                     Defaults to 100. Actual results may be slightly fewer if
-                     LinkedIn returns an incomplete final page.
-
-    Returns:
-        A list of job dictionaries, each containing:
-          - id         (str):  Unique LinkedIn job ID.
-          - title      (str):  Job title.
-          - company    (str):  Hiring company name.
-          - location   (str):  Job location string.
-          - url        (str):  Full URL to the LinkedIn job detail page.
-          - description(str):  Raw job description text (fetched separately).
-    """
-    collected_jobs: list[dict] = []
+    collected: list[dict] = []
     offset = 0
 
-    logger.info(
-        'Starting job scrape | keywords="%s" location="%s" max_results=%d',
-        keywords,
-        location,
-        max_results,
-    )
+    logger.info('Scraping: "%s" in "%s" (max %d)', keywords, location, max_results)
 
-    while len(collected_jobs) < max_results:
-        # ----------------------------------------------------------------
-        # Build the paginated request URL
-        # ----------------------------------------------------------------
+    while len(collected) < max_results:
         params = {
             "keywords": keywords,
             "location": location,
-            "start": offset,
-            "f_WT": "2",       # Strict LinkedIn Remote workplace filter
-            "f_TPR": "r86400", # Past 24 hours only — rejects anything older than 1 day
+            "start":    offset,
+            "f_WT":     "2",       # Remote filter
+            "f_TPR":    "r86400",  # Past 24 hours only
         }
 
         try:
-            logger.info(
-                "Fetching page | offset=%d | collected_so_far=%d",
-                offset,
-                len(collected_jobs),
-            )
-            response = requests.get(
-                GUEST_API_BASE,
-                params=params,
-                headers=_get_headers(),
-                timeout=15,
-            )
-            response.raise_for_status()
+            resp = requests.get(GUEST_API_BASE, params=params, headers=_headers(), timeout=15)
+            resp.raise_for_status()
         except requests.exceptions.HTTPError as exc:
-            # LinkedIn returns 429 when rate-limited; back off and break.
             if exc.response is not None and exc.response.status_code == 429:
-                logger.warning("Rate limited (HTTP 429). Stopping pagination.")
+                logger.warning("Rate limited (429). Stopping.")
             else:
-                logger.error("HTTP error fetching listings: %s", exc)
+                logger.error("HTTP error: %s", exc)
             break
         except requests.exceptions.RequestException as exc:
-            logger.error("Network error fetching listings: %s", exc)
+            logger.error("Network error: %s", exc)
             break
 
-        # ----------------------------------------------------------------
-        # Parse the HTML response
-        # ----------------------------------------------------------------
-        soup = BeautifulSoup(response.text, "lxml")
-        job_cards = soup.find_all("li")
-
-        if not job_cards:
-            logger.info("No more job cards returned. Pagination complete.")
+        soup = BeautifulSoup(resp.text, "lxml")
+        cards = soup.find_all("li")
+        if not cards:
             break
 
         page_count = 0
-        for card in job_cards:
-            # -- Extract job title ----------------------------------------
-            title_tag = card.find("h3", class_="base-search-card__title")
-            title = title_tag.get_text(strip=True) if title_tag else "Unknown Title"
+        for card in cards:
+            title_tag   = card.find("h3", class_="base-search-card__title")
+            title       = title_tag.get_text(strip=True) if title_tag else "Unknown Title"
 
-            # -- Extract company name -------------------------------------
-            # The company subtitle may be a direct <h4> or a nested <a>.
             company_tag = card.find("h4", class_="base-search-card__subtitle")
             if company_tag:
-                company_link = company_tag.find("a")
-                company = (
-                    company_link.get_text(strip=True)
-                    if company_link
-                    else company_tag.get_text(strip=True)
-                )
+                a = company_tag.find("a")
+                company = a.get_text(strip=True) if a else company_tag.get_text(strip=True)
             else:
                 company = "Unknown Company"
 
-            # -- Extract job URL & ID -------------------------------------
-            link_tag = card.find("a", class_="base-card__full-link")
-            raw_url = link_tag["href"] if link_tag and link_tag.get("href") else ""
-            # Strip query parameters to get the canonical job URL.
+            link_tag      = card.find("a", class_="base-card__full-link")
+            raw_url       = link_tag["href"] if link_tag and link_tag.get("href") else ""
             canonical_url = raw_url.split("?")[0] if raw_url else ""
-            job_id = _extract_job_id(canonical_url)
+            job_id        = _extract_job_id(canonical_url)
 
             if not job_id:
-                logger.debug("Could not extract job ID from URL '%s'. Skipping.", raw_url)
                 continue
 
-            # -- 24-hour freshness gate -----------------------------------
-            # Two-layer check: LinkedIn API filter (r86400) is the first
-            # gate; _is_within_24h() is the hard second gate that rejects
-            # any stale posting that leaked through the API filter.
             if not _is_within_24h(card):
-                logger.info("  Skipped (older than 24 h): %s @ %s", title, company)
+                logger.info("  Skipped (>24 h): %s @ %s", title, company)
                 continue
 
-            # -- Extract location -----------------------------------------
             location_tag = card.find(class_="job-search-card__location")
-            job_location = (
-                location_tag.get_text(strip=True) if location_tag else "Unknown Location"
-            )
+            job_location = location_tag.get_text(strip=True) if location_tag else "Unknown Location"
 
-            job_record = {
-                "id": job_id,
-                "title": title,
-                "company": company,
-                "location": job_location,
-                "url": canonical_url,
-                # Description is populated lazily by scrape_job_description()
-                # to avoid hammering detail pages for every listing.
+            collected.append({
+                "id":          job_id,
+                "title":       title,
+                "company":     company,
+                "location":    job_location,
+                "url":         canonical_url,
                 "description": "",
-            }
-            collected_jobs.append(job_record)
+            })
             page_count += 1
 
-            # Stop early if we've hit our target.
-            if len(collected_jobs) >= max_results:
+            if len(collected) >= max_results:
                 break
 
-        logger.info("Parsed %d jobs from this page.", page_count)
+        logger.info("  Page: %d cards parsed, %d total collected.", page_count, len(collected))
 
-        # LinkedIn returns an empty page when results are exhausted.
         if page_count < BATCH_SIZE:
-            logger.info("Received fewer than %d results — end of listings.", BATCH_SIZE)
             break
 
         offset += BATCH_SIZE
-        _random_delay()
+        _delay()
 
-    logger.info("Scrape complete. Total jobs collected: %d", len(collected_jobs))
-    return collected_jobs
+    logger.info("Scrape complete — %d jobs.", len(collected))
+    return collected
 
 
 def scrape_job_description(job_url: str) -> str:
-    """
-    Fetch and extract the full job description text from a LinkedIn job page.
-
-    LinkedIn renders two possible markup containers for job descriptions:
-      1. `.description__text`          — older layout
-      2. `.show-more-less-html__markup` — newer layout with expanded text
-
-    Both are tried in order; the first non-empty result is returned.
-
-    Args:
-        job_url: The canonical LinkedIn job detail URL (e.g.
-                 "https://www.linkedin.com/jobs/view/1234567890/").
-
-    Returns:
-        The raw description text, or an empty string if extraction fails.
-    """
-    _random_delay()
-
+    """Fetch and extract the full job description text from a LinkedIn job page."""
+    _delay()
     try:
-        response = requests.get(
-            job_url,
-            headers=_get_headers(),
-            timeout=15,
-        )
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as exc:
-        logger.warning("HTTP error fetching job description from '%s': %s", job_url, exc)
-        return ""
+        resp = requests.get(job_url, headers=_headers(), timeout=15)
+        resp.raise_for_status()
     except requests.exceptions.RequestException as exc:
-        logger.error("Network error fetching job description from '%s': %s", job_url, exc)
+        logger.warning("Failed to fetch description from '%s': %s", job_url, exc)
         return ""
 
-    soup = BeautifulSoup(response.text, "lxml")
+    soup = BeautifulSoup(resp.text, "lxml")
 
-    # Try the newer expanded markup container first.
-    desc_tag = soup.find(class_="show-more-less-html__markup")
-    if desc_tag:
-        return desc_tag.get_text(separator="\n", strip=True)
+    tag = soup.find(class_="show-more-less-html__markup")
+    if tag:
+        return tag.get_text(separator="\n", strip=True)
 
-    # Fall back to the older description container.
-    desc_tag = soup.find(class_="description__text")
-    if desc_tag:
-        return desc_tag.get_text(separator="\n", strip=True)
+    tag = soup.find(class_="description__text")
+    if tag:
+        return tag.get_text(separator="\n", strip=True)
 
-    logger.warning("No description markup found for URL: %s", job_url)
+    logger.warning("No description markup found: %s", job_url)
     return ""
