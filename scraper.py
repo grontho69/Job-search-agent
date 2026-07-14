@@ -129,6 +129,83 @@ def _random_delay() -> None:
     time.sleep(delay)
 
 
+def _is_within_24h(card) -> bool:
+    """
+    Return True only if the job card was posted within the last 24 hours.
+
+    LinkedIn embeds an ISO-8601 datetime in every card's <time> element:
+        <time datetime="2026-07-13T08:30:00.000Z">2 hours ago</time>
+
+    Strategy (two-step):
+      1. Try to parse the machine-readable `datetime` attribute for an exact
+         UTC comparison — most reliable.
+      2. Fall back to parsing the human-readable text ("X hours ago",
+         "Just now", "X minutes ago") when the attribute is absent or
+         malformed — covers edge cases in LinkedIn's HTML variants.
+
+    Returns True (accept) when the posting age cannot be determined at all,
+    so we never accidentally discard a job just because LinkedIn omitted
+    the timestamp tag.
+
+    Args:
+        card: A BeautifulSoup Tag representing one job card <li>.
+
+    Returns:
+        bool — True if the job is fresh (≤24 h old) or age is unknown.
+                False if the job is confirmed to be older than 24 hours.
+    """
+    from datetime import datetime, timezone, timedelta
+    import re
+
+    CUTOFF = timedelta(hours=24)
+    now    = datetime.now(timezone.utc)
+
+    # -- Step 1: machine-readable datetime attribute -------------------------
+    time_tag = card.find("time")
+    if time_tag:
+        dt_attr = time_tag.get("datetime", "")
+        if dt_attr:
+            try:
+                # Handle both Z-suffix and +00:00 offset forms.
+                posted_at = datetime.fromisoformat(dt_attr.replace("Z", "+00:00"))
+                age = now - posted_at
+                if age > CUTOFF:
+                    logger.debug(
+                        "Skipping old job (posted %s, age %s).",
+                        dt_attr, age
+                    )
+                    return False
+                return True
+            except ValueError:
+                pass  # Fall through to text-based check
+
+        # -- Step 2: human-readable text fallback ----------------------------
+        text = time_tag.get_text(strip=True).lower()
+
+        # Accept unambiguously fresh labels
+        if any(kw in text for kw in ("just now", "moment", "second", "minute")):
+            return True
+
+        # Accept if posted X hours ago (≤23 h)
+        hour_match = re.search(r"(\d+)\s*hour", text)
+        if hour_match:
+            return int(hour_match.group(1)) <= 23
+
+        # Reject if explicitly older than 1 day
+        day_match = re.search(r"(\d+)\s*day", text)
+        if day_match:
+            logger.debug("Skipping old job: '%s'.", text)
+            return False
+
+        # "week", "month", "year" → definitely old
+        if any(kw in text for kw in ("week", "month", "year")):
+            logger.debug("Skipping old job: '%s'.", text)
+            return False
+
+    # No timestamp found — accept the card (don't discard on uncertainty)
+    return True
+
+
 def _extract_job_id(url: str) -> Optional[str]:
     """
     Parse the numeric LinkedIn job ID from a full job URL.
@@ -203,8 +280,8 @@ def scrape_job_listings(
             "keywords": keywords,
             "location": location,
             "start": offset,
-            "f_WT": "2",  # Strict LinkedIn Remote workplace filter
-            "f_TPR": "r604800",  # Past week filter to surface fresh postings
+            "f_WT": "2",       # Strict LinkedIn Remote workplace filter
+            "f_TPR": "r86400", # Past 24 hours only — rejects anything older than 1 day
         }
 
         try:
@@ -269,6 +346,14 @@ def scrape_job_listings(
 
             if not job_id:
                 logger.debug("Could not extract job ID from URL '%s'. Skipping.", raw_url)
+                continue
+
+            # -- 24-hour freshness gate -----------------------------------
+            # Two-layer check: LinkedIn API filter (r86400) is the first
+            # gate; _is_within_24h() is the hard second gate that rejects
+            # any stale posting that leaked through the API filter.
+            if not _is_within_24h(card):
+                logger.info("  Skipped (older than 24 h): %s @ %s", title, company)
                 continue
 
             # -- Extract location -----------------------------------------
