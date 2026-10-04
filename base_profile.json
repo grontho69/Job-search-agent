@@ -1,35 +1,223 @@
 {
-  "_comment": "TEMPLATE — Replace nothing here. Fill your profile through the web UI at /setup after deploying to Vercel.",
-  "_instructions": "This file is a blank template. Your real profile is stored in the USER_PROFILE_JSON environment variable (set via Vercel). Do NOT put personal data in this file.",
-
-  "name": "",
-  "professional_title": "",
-
+  "name": "Mahathir Mohammad",
+  "professional_title": "Full Stack Developer | AI First Web Application Developer | MERN Stack Engineer",
   "contact": {
-    "email": "",
-    "phone": "",
-    "portfolio": "",
-    "linkedin": "",
-    "github": "",
-    "location": ""
+    "email": "mahathirm880@gmail.com",
+    "phone": "+8801301563161",
+    "portfolio": "https://devmahathir.netlify.app",
+    "linkedin": "https://linkedin.com/in/mahathir-mohammad-4073b33b2",
+    "github": "https://github.com/grontho69",
+    "location": "Kushtia, Khulna, Bangladesh"
   },
-
-  "summary": "",
-
-  "technical_skills": {},
-
-  "professional_experience": [],
-
-  "projects": [],
-
-  "education": [],
-
-  "certifications": [],
-
+  "summary": "Full-Stack Software Engineer and Computer Science graduate specializing in building scalable, resilient, high-performance web systems and AI-powered automation workflows. Experienced across the React, Next.js, Node.js, TypeScript, and Python ecosystems. Proven track record architecting zero-data-loss client systems, conversion-driven SaaS platforms with secure RBAC, and agentic LLM data pipelines. Strong foundation in relational data modeling (PostgreSQL, Drizzle ORM), NoSQL (MongoDB), and modern REST/microservices.",
+  "technical_skills": {
+    "Languages": [
+      "JavaScript (ES6+)",
+      "TypeScript",
+      "Python",
+      "SQL",
+      "HTML5",
+      "CSS3"
+    ],
+    "Frontend Frameworks": [
+      "React.js",
+      "Next.js (App Router)",
+      "Tailwind CSS",
+      "Redux Toolkit",
+      "GSAP"
+    ],
+    "Backend & APIs": [
+      "Node.js",
+      "Express.js",
+      "Nest.js",
+      "Fastify",
+      "RESTful APIs",
+      "NextAuth",
+      "Firebase"
+    ],
+    "Databases & Storage": [
+      "PostgreSQL",
+      "MongoDB",
+      "MySQL",
+      "Drizzle ORM",
+      "Mongoose",
+      "Redis",
+      "IndexedDB"
+    ],
+    "DevOps & Tools": [
+      "Docker",
+      "Git",
+      "GitHub",
+      "CI/CD",
+      "Postman",
+      "Linux",
+      "Vercel"
+    ],
+    "AI & Automation": [
+      "LLM API Integration (Groq, Gemini)",
+      "Agentic Workflows",
+      "Prompt Engineering"
+    ]
+  },
+  "professional_experience": [
+    {
+      "title": "Full Stack Web Developer (MERN Stack)",
+      "company": "Self-employed / Freelance",
+      "dates": "June 2024 - Present",
+      "location": "Remote",
+      "bullets": [
+        "Architected and deployed responsive, high-performance web applications using React, Next.js, Node.js, and MongoDB.",
+        "Engineered modular RESTful APIs and secure authentication flows, reducing server response latency by 25%.",
+        "Implemented clean database schemas and integrated modern state management for seamless cross-device user experiences."
+      ]
+    },
+    {
+      "title": "Campus Ambassador",
+      "company": "Programming Hero",
+      "dates": "May 2026 - Present",
+      "location": "Kushtia, Bangladesh",
+      "bullets": [
+        "Led technical community initiatives and organized workshops promoting modern full-stack web development practices.",
+        "Mentored aspiring developers in programming fundamentals, problem solving, and modern web frameworks."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "edutec",
+      "name": "EduTec 1.0 — High-Concurrency Admission Engine",
+      "live_link": "https://web-theta-jade-69.vercel.app/",
+      "github_link": "https://github.com/grontho69/edu_tec_1.0",
+      "technologies": "Next.js 14, TypeScript, PostgreSQL, Drizzle ORM, Tailwind CSS, IndexedDB",
+      "tags": [
+        "Full Stack",
+        "TypeScript",
+        "Next.js",
+        "PostgreSQL",
+        "Database",
+        "Offline-First"
+      ],
+      "bullets": [
+        "Engineered an enterprise admission portal featuring zero-data-loss client architecture using IndexedDB for 100% session persistence during network disruptions.",
+        "Designed relational database schemas with PostgreSQL and Drizzle ORM, executing optimized multi-table queries with sub-50ms execution times.",
+        "Built responsive UI with Next.js App Router and Tailwind CSS, improving onboarding completion rates by 35%."
+      ]
+    },
+    {
+      "id": "zenji",
+      "name": "Zenji (Volans) — E-Commerce SaaS Platform",
+      "live_link": "https://zenji-project.vercel.app/",
+      "github_link": "https://github.com/grontho69/zenji-project",
+      "technologies": "React.js, Node.js, Express.js, MongoDB, Tailwind CSS, Stripe",
+      "tags": [
+        "Full Stack",
+        "MERN",
+        "E-Commerce",
+        "API",
+        "Auth",
+        "Payments"
+      ],
+      "bullets": [
+        "Developed an end-to-end multi-category commerce platform with role-based access control (RBAC) separating customer, vendor, and admin operations.",
+        "Constructed high-speed cart micro-interactions and secure checkout pipeline integrated with Stripe API and automated order invoicing.",
+        "Optimized MongoDB indexing and aggregation pipelines, ensuring real-time product inventory tracking under simulated high user traffic."
+      ]
+    },
+    {
+      "id": "job_agent",
+      "name": "Autonomous AI Job Search & ATS Resume Agent",
+      "live_link": "https://github.com/grontho69/Job-search-agent",
+      "github_link": "https://github.com/grontho69/Job-search-agent",
+      "technologies": "Python, Groq LLM, Google Gemini 2.5 Flash, Supabase, LaTeX, Meta WhatsApp Cloud API",
+      "tags": [
+        "AI",
+        "Python",
+        "Automation",
+        "LLM",
+        "Backend",
+        "DevOps"
+      ],
+      "bullets": [
+        "Engineered an automated job search orchestrator querying multi-channel remote job APIs, deduplicating records via Supabase cloud storage.",
+        "Implemented a dual-stage LLM screening and tailoring pipeline (Groq LLaMA-3.3 + Gemini) producing 90+ ATS-scored custom LaTeX resumes per job.",
+        "Integrated Meta WhatsApp Cloud API with scheduled GitHub Actions workflows to deliver daily verified opportunity briefings with tailored PDF resumes."
+      ]
+    },
+    {
+      "id": "restaurant",
+      "name": "Gourmet Restaurant & Dynamic Ordering System",
+      "live_link": "https://restuarent-website-flax.vercel.app/",
+      "github_link": "https://github.com/grontho69/restuarent-website",
+      "technologies": "React.js, Tailwind CSS, JavaScript, Context API",
+      "tags": [
+        "Frontend",
+        "React",
+        "UI/UX",
+        "JavaScript",
+        "Responsive"
+      ],
+      "bullets": [
+        "Constructed a high-conversion modern dining website with interactive menu filtering, smooth micro-animations, and real-time reservation scheduling.",
+        "Applied state management via React Context API to support seamless guest cart selection and custom dietary order modifications.",
+        "Achieved 95+ Google Lighthouse performance score by implementing dynamic asset loading and responsive layout strategies."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "degree": "Diploma in Engineering",
+      "field": "Computer Science & Technology",
+      "institution": "Kushtia Polytechnic Institute, Kushtia",
+      "graduation_year": "February 2025"
+    },
+    {
+      "degree": "Higher Secondary Certificate (HSC)",
+      "field": "Science",
+      "institution": "Kushtia Govt Central College",
+      "graduation_year": "October 2024"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "Complete Web Development",
+      "issuer": "Programming Hero",
+      "year": "2024"
+    }
+  ],
   "_agent_config": {
-    "search_keywords": [],
+    "search_keywords": [
+      "Full Stack Web Developer",
+      "MERN Stack Developer",
+      "Frontend Developer",
+      "Backend Developer",
+      "Junior Full Stack Developer",
+      "React Developer",
+      "Node.js Developer"
+    ],
     "search_location": "Remote",
-    "daily_job_limit": 10,
-    "pass_threshold": 0.80
+    "daily_job_limit": 20,
+    "pass_threshold": 0.75,
+    "allowed_countries": [
+      "Worldwide",
+      "Anywhere",
+      "Remote",
+      "Bangladesh",
+      "India",
+      "Pakistan",
+      "Germany",
+      "United Kingdom",
+      "UK",
+      "Australia",
+      "Ireland",
+      "Saudi Arabia",
+      "UAE",
+      "Europe"
+    ],
+    "excluded_countries": [
+      "United States",
+      "US",
+      "USA",
+      "US Only"
+    ]
   }
 }

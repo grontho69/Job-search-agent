@@ -1,44 +1,23 @@
-# ============================================================================
-# .github/workflows/resume_agent_scheduler.yml
-# ============================================================================
-# AI Resume Agent — Enterprise Scheduled & On-Demand Workflow
-# -----------------------------------------------------------
-# Runs on free GitHub Actions servers with 45-minute execution limit,
-# full Python environment, native PDF generation, zero cloud timeouts,
-# and live streaming to Google Sheets.
-# ============================================================================
-
-name: 🤖 AI Resume Agent — Daily Job Search & Auto-Sync
+name: 🤖 Daily Remote Job Search & Tailored CV Briefing
 
 on:
   schedule:
-    - cron: "0 9 * * 1-5"   # 9:00 AM UTC, Mon-Fri
-
+    # 03:00 UTC = 09:00 AM Bangladesh Standard Time (BST), Mon-Fri
+    - cron: "0 3 * * 1-5"
   workflow_dispatch:
-    inputs:
-      search_keywords:
-        description: "Comma-separated job keywords (overrides default)"
-        required: false
-        default: ""
 
 permissions:
-  contents: write
-
-concurrency:
-  group: resume-agent-${{ github.ref }}
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  run-resume-agent:
-    name: Search, Screen & Compile Resumes
+  run-daily-job-search:
+    name: Aggregate, Tailor Resumes & Notify WhatsApp
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
       - name: 🐍 Set up Python 3.11
         uses: actions/setup-python@v5
@@ -46,26 +25,26 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
+      - name: 📄 Install LaTeX (for ATS Vector Resume PDF Generation)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends texlive-latex-base texlive-latex-recommended texlive-fonts-recommended
+          pdflatex --version
+
       - name: 📦 Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 🚀 Run AI Resume Agent
+      - name: 🚀 Run AI Job Search Pipeline
         run: |
-          echo "Starting AI Resume Agent pipeline..."
           python core_orchestrator.py
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GOOGLE_SHEETS_WEBHOOK_URL: ${{ secrets.GOOGLE_SHEETS_WEBHOOK_URL }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          WHATSAPP_TOKEN: ${{ secrets.WHATSAPP_TOKEN }}
+          WHATSAPP_PHONE_NUMBER_ID: ${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+          RECIPIENT_PHONE_NUMBER: ${{ secrets.RECIPIENT_PHONE_NUMBER }}
           USER_PROFILE_JSON: ${{ secrets.USER_PROFILE_JSON }}
-          SEARCH_KEYWORDS: ${{ github.event.inputs.search_keywords || 'Full Stack Web Developer,Junior Web Developer,MERN Stack Web Developer,Frontend Web Developer,React Developer,JavaScript Web Developer' }}
-          SEARCH_LOCATION: 'Remote'
-          OUTPUT_DIR: "./output"
-
-      # NOTE: job_tracker.xlsx and processed_jobs.json are in .gitignore
-      # and are NEVER committed — they contain personal job application data.
-      # Each user manages their own state via their private Vercel/GitHub environment.
-

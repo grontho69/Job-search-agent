@@ -1,33 +1,13 @@
 """
-core_orchestrator.py  (v2 — Excel edition)
-===========================================
-Stateful AI Job Search Pipeline — Excel Output
------------------------------------------------
-Redesigned workflow:
-  1. Search LinkedIn for 6 job categories (15 total unique jobs per day)
-  2. Skip already-logged jobs (read from job_tracker.xlsx, not processed_jobs.json)
-  3. Fetch full job descriptions
-  4. Stage 1: Groq relevance screening (skip jobs < 80% match)
-  5. Stage 2: Gemini profile tailoring per job (one specific CV per job)
-  6. Compile DOCX resume into output/YYYY-MM-DD/ date folder
-  7. Log everything to job_tracker.xlsx (no email)
-  8. Save processed IDs back to processed_jobs.json for GitHub Actions state
-
-Job categories searched (15 total, spread across 6 keywords):
-  - Full Stack Web Developer
-  - Junior Web Developer
-  - MERN Stack Web Developer
-  - Frontend Web Developer
-  - React Developer
-  - JavaScript Web Developer
-
-Output structure:
-  output/
-    2026-06-29/
-      resume_FullStack_Shopify_120500.docx
-      resume_React_Developer_GitHub_120612.docx
-      ...
-  job_tracker.xlsx   <-- Master Excel log (open this to see all results)
+core_orchestrator.py
+====================
+Next-Gen Autonomous Remote Job Search & Tailored ATS Resume Agent
+- Queries multi-channel free remote job APIs (Remotive, Jobicy, LinkedIn Guest)
+- Filters strictly for non-US / eligible international remote candidates
+- Deduplicates via Supabase cloud database to guarantee zero repeated jobs
+- Prioritizes Mahathir's core projects (EduTec, Zenji, AI Job Agent, Restaurant)
+- Compiles custom Overleaf/Jake's Resume LaTeX sources into 90+ ATS-score vector PDFs
+- Dispatches formatted daily job briefings directly to WhatsApp
 """
 
 import json
@@ -38,506 +18,151 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scraper import scrape_job_listings, scrape_job_description
+from scrapers.unified_aggregator import aggregate_target_jobs
 from matcher import evaluate_job
-from compiler import compile_resume
-from reporter import append_job_row, write_run_summary, get_all_logged_job_ids
+from cv_generator.latex_templates import generate_latex_source
+from cv_generator.latex_compiler import compile_latex_to_pdf
+from database.supabase_client import get_all_processed_job_ids, insert_processed_job
+from notifications.whatsapp_reporter import send_whatsapp_job_report
 from groq import Groq
 
 # ---------------------------------------------------------------------------
-# Logging
+# Logging Setup
 # ---------------------------------------------------------------------------
-handlers = [logging.StreamHandler(sys.stdout)]
-try:
-    handlers.append(logging.FileHandler("orchestrator.log", encoding="utf-8"))
-except Exception:
-    pass
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=handlers,
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("orchestrator")
 
-# ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
-import tempfile
-BASE_PROFILE_PATH   = Path("base_profile.json")
-PROCESSED_JOBS_PATH = Path("processed_jobs.json")
+BASE_PROFILE_PATH = Path("base_profile.json")
+OUTPUT_BASE_DIR = Path("output")
 
-try:
-    test_dir = Path("output")
-    test_dir.mkdir(parents=True, exist_ok=True)
-    OUTPUT_BASE_DIR = test_dir
-except Exception:
-    OUTPUT_BASE_DIR = Path(tempfile.gettempdir()) / "output"
-    OUTPUT_BASE_DIR.mkdir(parents=True, exist_ok=True)
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-# Target: fetch this many unique new jobs total per run.
-DAILY_JOB_LIMIT = 10
-
-# Minimum Groq score to proceed to CV compilation (80% as requested).
-PASS_THRESHOLD = 0.80
-
-# Jobs to request per keyword from LinkedIn (over-fetch so dedup still yields DAILY_JOB_LIMIT).
-FETCH_PER_KEYWORD = 8
-
-# The 6 job categories to search — exactly as requested.
-SEARCH_KEYWORDS = [
-    kw.strip()
-    for kw in os.environ.get(
-        "SEARCH_KEYWORDS",
-        "Full Stack Web Developer,"
-        "Junior Web Developer,"
-        "MERN Stack Web Developer,"
-        "Frontend Web Developer,"
-        "React Developer,"
-        "JavaScript Web Developer",
-    ).split(",")
-    if kw.strip()
-]
-
-SEARCH_LOCATIONS = [
-    loc.strip()
-    for loc in os.environ.get("SEARCH_LOCATION", "Bangladesh, Remote").split(",")
-    if loc.strip()
-]
-
-# Seconds between processing each job (avoids API hammering).
-JOB_PROCESSING_DELAY = 2
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _sanitize_professional_title(raw_title: str) -> str:
-    """Clean raw scraped LinkedIn titles into crisp, professional ATS headlines."""
-    if not raw_title:
-        return "Full Stack Web Developer (MERN Stack)"
-    import re
-    cleaned = raw_title.strip()
-    cleaned = re.sub(r"(?i)^(we're looking for|hiring|wanted|urgent|we are looking for)\s+", "", cleaned)
-    cleaned = re.split(r"(?i)\s*[-|–—]\s*(for|job\s*id|remote|full\s*time|part\s*time)", cleaned)[0]
-    cleaned = cleaned.strip(" -–—:|!")
-    if len(cleaned) >= 4 and len(cleaned) <= 45:
-        return cleaned
-    return "Full Stack Web Developer (MERN Stack)"
-
-
-def _get_todays_output_dir() -> Path:
-    """Return and create today's dated output folder: output/YYYY-MM-DD/"""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    folder = OUTPUT_BASE_DIR / today
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder
-
-
-def _load_base_profile() -> dict:
-    """
-    Load the user's profile.
-
-    Priority order (highest → lowest):
-      1. USER_PROFILE_JSON environment variable  — set privately in Vercel / GitHub Secrets.
-         This is the correct path for all deployed users. No personal data ever touches the repo.
-      2. base_profile.json on disk               — blank template only; exits if no real data.
-
-    This design ensures zero personal data is stored in the Git repository.
-    Every user keeps their profile in their own private environment variable.
-    """
-    # ── Priority 1: environment variable (Vercel / GitHub Secrets) ──────────
+def _load_profile() -> dict:
+    """Loads master user profile from USER_PROFILE_JSON env or base_profile.json."""
     raw_env = os.environ.get("USER_PROFILE_JSON", "").strip()
     if raw_env:
         try:
-            profile = json.loads(raw_env)
-            name = profile.get("name", "").strip()
-            if name:
-                logger.info("Profile loaded from USER_PROFILE_JSON env var for: %s", name)
+            p = json.loads(raw_env)
+            if p.get("name"):
+                return p
+        except Exception:
+            pass
 
-                # Apply agent config overrides from the profile if present
-                agent_cfg = profile.get("_agent_config", {})
-                if agent_cfg.get("search_keywords"):
-                    global SEARCH_KEYWORDS
-                    SEARCH_KEYWORDS = agent_cfg["search_keywords"]
-                    logger.info("Keywords overridden from profile: %s", SEARCH_KEYWORDS)
-                if agent_cfg.get("search_location"):
-                    global SEARCH_LOCATIONS
-                    SEARCH_LOCATIONS = [agent_cfg["search_location"]]
-                if agent_cfg.get("daily_job_limit"):
-                    global DAILY_JOB_LIMIT
-                    DAILY_JOB_LIMIT = int(agent_cfg["daily_job_limit"])
-                if agent_cfg.get("pass_threshold"):
-                    global PASS_THRESHOLD
-                    PASS_THRESHOLD = float(agent_cfg["pass_threshold"])
-
-                return profile
-        except (json.JSONDecodeError, Exception) as exc:
-            logger.error("Failed to parse USER_PROFILE_JSON: %s", exc)
-
-    # ── Priority 2: base_profile.json (blank template fallback) ─────────────
     if BASE_PROFILE_PATH.exists():
-        try:
-            with open(BASE_PROFILE_PATH, "r", encoding="utf-8") as f:
-                profile = json.load(f)
-            name = profile.get("name", "").strip()
-            if name:
-                logger.info("Profile loaded from base_profile.json for: %s", name)
-                return profile
-        except Exception as exc:
-            logger.error("Failed to read base_profile.json: %s", exc)
+        with open(BASE_PROFILE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
 
-    # ── No valid profile found ───────────────────────────────────────────────
-    logger.critical(
-        "No profile configured. Set the USER_PROFILE_JSON environment variable "
-        "in Vercel / GitHub Secrets, or visit /setup on your deployed dashboard."
-    )
+    logger.critical("No master profile configured. Please populate base_profile.json.")
     sys.exit(1)
 
-
-def _load_processed_ids() -> set:
-    """Load state from both Excel tracker and processed_jobs.json."""
-    # Primary source: Excel tracker (most up-to-date)
-    ids_from_excel = get_all_logged_job_ids()
-
-    # Secondary source: JSON state file (for GitHub Actions continuity)
-    ids_from_json = set()
-    if PROCESSED_JOBS_PATH.exists():
-        try:
-            with open(PROCESSED_JOBS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            ids_from_json = set(data.get("processed_job_ids", []))
-        except Exception:
-            pass
-
-    combined = ids_from_excel | ids_from_json
-    logger.info(
-        "Known processed jobs: %d (Excel: %d, JSON: %d)",
-        len(combined), len(ids_from_excel), len(ids_from_json),
-    )
-    return combined
-
-
-def _save_processed_ids(ids: set, summary: dict) -> None:
-    """Persist state to processed_jobs.json for GitHub Actions."""
-    state = {
-        "processed_job_ids": sorted(list(ids)),
-        "last_updated": datetime.now(timezone.utc).isoformat(),
-        "total_processed": len(ids),
-        "last_run_summary": summary,
-    }
-    try:
-        with open(PROCESSED_JOBS_PATH, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2)
-        logger.info("State saved: %d total processed jobs.", len(ids))
-    except Exception:
-        logger.info("Skipping processed_jobs.json save on read-only serverless environment.")
-
-
-# ---------------------------------------------------------------------------
-# Main Pipeline
-# ---------------------------------------------------------------------------
-
 def run_pipeline() -> dict:
-    """
-    Full daily job search and CV compilation pipeline.
-
-    Steps:
-      1. Load profile + processed state
-      2. Scrape LinkedIn for 6 job categories
-      3. Deduplicate and cap at DAILY_JOB_LIMIT (15)
-      4. For each new job: describe → screen → tailor → compile → log
-      5. Write Excel summary row
-      6. Persist state
-
-    Returns:
-        Run statistics dict.
-    """
-    run_start = datetime.now(timezone.utc)
+    """Main automated workflow execution."""
+    start_time = datetime.now(timezone.utc)
     logger.info("=" * 60)
-    logger.info("AI Resume Agent v2 (Excel Edition) - Pipeline Start")
-    logger.info("Run: %s | Target: %d jobs | Threshold: %.0f%%",
-                run_start.strftime("%Y-%m-%d %H:%M UTC"),
-                DAILY_JOB_LIMIT,
-                PASS_THRESHOLD * 100)
+    logger.info("AI Job Search & Tailored ATS Resume Agent - Starting Workflow")
+    logger.info("Time: %s", start_time.strftime("%Y-%m-%d %H:%M UTC"))
     logger.info("=" * 60)
 
-    # -----------------------------------------------------------------------
-    # Init
-    # -----------------------------------------------------------------------
-    from reporter import ensure_sheet_headers
-    ensure_sheet_headers()
+    profile = _load_profile()
+    cfg = profile.get("_agent_config", {})
+    daily_limit = int(cfg.get("daily_job_limit", 20))
+    pass_threshold = float(cfg.get("pass_threshold", 0.75))
+    keywords = cfg.get("search_keywords", ["Full Stack Web Developer", "MERN Stack Developer"])
+    excluded_countries = cfg.get("excluded_countries", ["United States", "US", "USA"])
 
-    output_dir   = _get_todays_output_dir()
-    base_profile = _load_base_profile()
-    processed_ids = _load_processed_ids()
+    # 1. Fetch previously seen job IDs from Supabase
+    seen_job_ids = get_all_processed_job_ids()
+    logger.info("Database loaded: %d previously processed job IDs.", len(seen_job_ids))
 
-    try:
-        groq_client = Groq(api_key=os.environ["GROQ_API_KEY"])
-        logger.info("Groq client ready.")
-    except KeyError:
-        logger.critical("GROQ_API_KEY not set. Exiting.")
-        sys.exit(1)
+    # 2. Gather fresh candidates from multi-channel remote sources
+    candidates = aggregate_target_jobs(
+        keywords=keywords,
+        excluded_countries=excluded_countries,
+        known_job_ids=seen_job_ids,
+        target_count=daily_limit
+    )
 
-    stats = {
-        "total_scraped": 0,
-        "skipped_duplicate": 0,
-        "new_jobs": 0,
-        "below_threshold": 0,
-        "passed_screening": 0,
-        "resumes_compiled": 0,
-        "gemini_tailored": 0,
-        "gsheets_rows_added": 0,
-        "errors": [],
-    }
+    today_str = start_time.strftime("%Y-%m-%d")
+    output_dir = OUTPUT_BASE_DIR / today_str
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    newly_processed: set = set()
+    groq_api_key = os.environ.get("GROQ_API_KEY")
+    groq_client = Groq(api_key=groq_api_key) if groq_api_key else None
 
-    # -----------------------------------------------------------------------
-    # Phase 1: Scrape all keywords, collect unique new jobs
-    # -----------------------------------------------------------------------
-    logger.info("Phase 1: Scraping LinkedIn for %d keywords...", len(SEARCH_KEYWORDS))
-    seen_ids: set = set()
-    candidate_jobs: list = []
+    qualified_jobs = []
 
-    for location in SEARCH_LOCATIONS:
-        for keyword in SEARCH_KEYWORDS:
-            if len(candidate_jobs) >= DAILY_JOB_LIMIT * 2:
-                break
+    # 3. Process and screen jobs
+    for idx, job in enumerate(candidates, start=1):
+        if len(qualified_jobs) >= daily_limit:
+            break
 
-            logger.info("  Searching Remote Jobs: '%s' in '%s'", keyword, location)
-            try:
-                raw = scrape_job_listings(
-                    keywords=keyword,
-                    location=location,
-                    max_results=FETCH_PER_KEYWORD,
-                )
-            except Exception as exc:
-                msg = f"Scrape failed for '{keyword}' in '{location}': {exc}"
-                logger.error(msg)
-                stats["errors"].append(msg)
-                continue
+        jid = job.get("id")
+        title = job.get("title")
+        company = job.get("company")
+        logger.info("[%d/%d candidates] Evaluating: %s @ %s", idx, len(candidates), title, company)
 
-            # ---- FIX: these must be INSIDE the keyword loop ----
-            stats["total_scraped"] += len(raw)
-
-            for job in raw:
-                jid = job.get("id")
-                if not jid:
-                    continue
-                if jid in processed_ids:
-                    # Already applied / seen in a previous run — skip it
-                    stats["skipped_duplicate"] += 1
-                    logger.debug("  Skipping already-processed job ID: %s", jid)
-                    continue
-                if jid in seen_ids:
-                    # Deduplicate within this run (same job found by 2 keywords)
-                    continue
-                seen_ids.add(jid)
-                candidate_jobs.append(job)
-
-            logger.info("  Candidates so far: %d unique new jobs", len(candidate_jobs))
-
-    # Cap at daily limit
-    jobs_to_process = candidate_jobs[:DAILY_JOB_LIMIT]
-    stats["new_jobs"] = len(jobs_to_process)
-
-    logger.info("=" * 60)
-    logger.info("Phase 1 complete: %d new unique jobs to process (capped at %d)",
-                len(jobs_to_process), DAILY_JOB_LIMIT)
-
-    if not jobs_to_process:
-        logger.info("No new jobs found. All done for today.")
-        write_run_summary(
-            stats["total_scraped"], 0, 0, 0, stats["errors"]
-        )
-        _save_processed_ids(processed_ids | newly_processed, stats)
-        return stats
-
-    # -----------------------------------------------------------------------
-    # Phase 2: Process each job
-    # -----------------------------------------------------------------------
-    logger.info("Phase 2: Screening, tailoring, and compiling CVs...")
-
-    for idx, job in enumerate(jobs_to_process, start=1):
-        job_id  = job.get("id", "unknown")
-        title   = job.get("title", "Unknown Role")
-        company = job.get("company", "Unknown Company")
-        url     = job.get("url", "")
-        location = job.get("location", "")
-
-        logger.info("-" * 50)
-        logger.info("[%d/%d] %s @ %s (ID: %s)",
-                    idx, len(jobs_to_process), title, company, job_id)
-
-        # -------------------------------------------------------------------
-        # Step A: Fetch full job description
-        # -------------------------------------------------------------------
-        if not job.get("description") and url:
-            try:
-                job["description"] = scrape_job_description(url)
-                if job["description"]:
-                    logger.info("  Description fetched (%d chars).", len(job["description"]))
-                else:
-                    logger.warning("  No description found — will screen on title only.")
-            except Exception as exc:
-                logger.warning("  Description fetch failed: %s", exc)
-                job["description"] = ""
-
-        # -------------------------------------------------------------------
-        # Step B: AI Evaluation (Stage 1 Groq + Stage 2 Gemini)
-        # -------------------------------------------------------------------
-        try:
-            result = evaluate_job(
-                job=job,
-                base_profile=base_profile,
-                groq_client=groq_client,
-            )
-        except Exception as exc:
-            msg = f"evaluate_job failed for {job_id}: {exc}"
-            logger.error(msg)
-            stats["errors"].append(msg)
-            newly_processed.add(job_id)
-            continue
-
-        score  = result.get("score", 0.0)
-        reason = result.get("reason", "")
-        passed = score >= PASS_THRESHOLD
-
-        logger.info("  Groq Score: %.0f%% | %s", score * 100, reason)
+        eval_result = evaluate_job(job=job, base_profile=profile, groq_client=groq_client)
+        score = eval_result.get("score", 0.0)
+        passed = score >= pass_threshold or not groq_client  # Fallback to keep flowing
 
         if not passed:
-            stats["below_threshold"] += 1
-            logger.info("  Below %.0f%% threshold — skipping CV.", PASS_THRESHOLD * 100)
-            newly_processed.add(job_id)
-            # Still log to Google Sheets so you have full visibility
-            append_job_row(
-                job_id=job_id, title=title, company=company,
-                location=location, url=url, score=score,
-                rationale=reason, cv_filename="N/A (Below threshold)",
-                cv_abs_path="", gemini_tailored=False, status="Skipped",
-            )
-            stats["gsheets_rows_added"] += 1
+            logger.info("  Skipping: Fit score %.0f%% below %.0f%% threshold.", score * 100, pass_threshold * 100)
             continue
 
-        stats["passed_screening"] += 1
-        gemini_ok = result.get("tailored_profile") is not None
-        # Make a shallow copy of the profile so we don't mutate base_profile globally
-        profile_to_compile = dict(result.get("tailored_profile") or base_profile)
-        # Set a clean, professional ATS title as the CV headline for this specific job
-        profile_to_compile["professional_title"] = _sanitize_professional_title(title)
+        tailored_profile = eval_result.get("tailored_profile") or profile
 
-        if gemini_ok:
-            stats["gemini_tailored"] += 1
-            logger.info("  Gemini tailored CV ready for '%s'.", title)
-        else:
-            logger.warning("  Gemini failed/quota — compiling specific CV using base profile for '%s'.", title)
+        # Generate LaTeX & PDF Custom CV
+        safe_company = "".join(c if c.isalnum() else "_" for c in company)[:15]
+        safe_title = "".join(c if c.isalnum() else "_" for c in title)[:20]
+        tex_filename = f"Resume_{safe_company}_{safe_title}.tex"
+        pdf_filename = f"Resume_{safe_company}_{safe_title}.pdf"
+        tex_path = output_dir / tex_filename
+        pdf_path = output_dir / pdf_filename
 
-        # -------------------------------------------------------------------
-        # Step C: Compile the DOCX — one specific CV for this specific job
-        # -------------------------------------------------------------------
-        # Filename: resume_{Title}_{Company}_{Time}.docx
-        safe_title   = "".join(c if c.isalnum() or c in " _-" else "" for c in title)[:30].strip().replace(" ", "_")
-        safe_company = "".join(c if c.isalnum() or c in " _-" else "" for c in company)[:18].strip().replace(" ", "_")
-        timestamp    = datetime.now(timezone.utc).strftime("%H%M%S")
-        docx_name    = f"resume_{safe_title}_{safe_company}_{timestamp}.docx"
-        docx_path    = str(output_dir / docx_name)
+        tex_code = generate_latex_source(profile=tailored_profile, target_job=job)
+        compile_latex_to_pdf(tex_code=tex_code, output_pdf_path=str(pdf_path), output_tex_path=str(tex_path))
 
-        try:
-            compile_resume(profile=profile_to_compile, output_path=docx_path)
-            stats["resumes_compiled"] += 1
-            logger.info("  CV compiled: %s", docx_name)
-        except Exception as exc:
-            msg = f"CV compile failed for {job_id}: {exc}"
-            logger.error(msg, exc_info=True)
-            stats["errors"].append(msg)
-            newly_processed.add(job_id)
-            continue
+        job_info = {
+            "id": jid,
+            "title": title,
+            "company": company,
+            "country": job.get("country", "Worldwide"),
+            "salary": job.get("salary", "Not Specified"),
+            "score": score,
+            "url": job.get("url"),
+            "pdf_filename": pdf_filename,
+            "pdf_path": str(pdf_path)
+        }
 
-        # -------------------------------------------------------------------
-        # Step D: Log directly to Google Sheets
-        # -------------------------------------------------------------------
-        append_job_row(
-            job_id=job_id,
+        # Record in Supabase
+        insert_processed_job(
+            job_id=jid,
             title=title,
             company=company,
-            location=location,
-            url=url,
+            location=job.get("location", ""),
+            url=job.get("url", ""),
             score=score,
-            rationale=reason,
-            cv_filename=docx_name,
-            cv_abs_path=docx_path,
-            gemini_tailored=gemini_ok,
-            status="Applied" if score >= 0.90 else "Review",
+            country=job.get("country", "Worldwide"),
+            salary=job.get("salary", "Not Specified"),
+            rationale=eval_result.get("reason", ""),
+            pdf_url=str(pdf_path)
         )
-        stats["gsheets_rows_added"] += 1
 
-        newly_processed.add(job_id)
+        qualified_jobs.append(job_info)
+        logger.info("  ✅ Qualified Job [%d/%d]: %s (%s)", len(qualified_jobs), daily_limit, title, company)
 
-        # Automatically cleanup local temporary CV files so they are NOT saved in the local system
-        try:
-            if os.path.exists(docx_path):
-                os.remove(docx_path)
-            pdf_path = docx_path.replace(".docx", ".pdf")
-            if os.path.exists(pdf_path):
-                os.remove(pdf_path)
-            logger.info("  Cleaned up local temporary CV files for %s", job_id)
-        except Exception:
-            pass
+    # 4. Dispatch Briefing to WhatsApp
+    if qualified_jobs:
+        send_whatsapp_job_report(qualified_jobs)
+        logger.info("Dispatched WhatsApp briefing for %d jobs.", len(qualified_jobs))
+    else:
+        logger.warning("No new qualified jobs met the threshold today.")
 
-        if idx < len(jobs_to_process):
-            time.sleep(JOB_PROCESSING_DELAY)
+    logger.info("Pipeline Complete. %d opportunities processed and logged.", len(qualified_jobs))
+    return {"qualified_count": len(qualified_jobs)}
 
-    # -----------------------------------------------------------------------
-    # Phase 3: Save state and write summary
-    # -----------------------------------------------------------------------
-    write_run_summary(
-        total_scraped=stats["total_scraped"],
-        new_jobs=stats["new_jobs"],
-        passed_screening=stats["passed_screening"],
-        resumes_compiled=stats["resumes_compiled"],
-        errors=stats["errors"],
-    )
-    _save_processed_ids(processed_ids | newly_processed, stats)
-
-    # -----------------------------------------------------------------------
-    # Final summary log
-    # -----------------------------------------------------------------------
-    elapsed = (datetime.now(timezone.utc) - run_start).total_seconds()
-    logger.info("=" * 60)
-    logger.info("Pipeline Complete | %.1fs", elapsed)
-    logger.info("  Scraped:          %d", stats["total_scraped"])
-    logger.info("  Skipped (dupe):   %d", stats["skipped_duplicate"])
-    logger.info("  New jobs:         %d", stats["new_jobs"])
-    logger.info("  Passed %.0f%% screen: %d", PASS_THRESHOLD * 100, stats["passed_screening"])
-    logger.info("  Below threshold:  %d", stats["below_threshold"])
-    logger.info("  CVs compiled:     %d", stats["resumes_compiled"])
-    logger.info("  Gemini tailored:  %d", stats["gemini_tailored"])
-    logger.info("  Google Sheets rows added: %d", stats["gsheets_rows_added"])
-    if stats["errors"]:
-        logger.warning("  Errors:                   %d", len(stats["errors"]))
-    logger.info("  Output folder:            %s", output_dir.absolute())
-    logger.info("  Google Sheet ID:          %s", os.environ.get("GOOGLE_SHEET_ID", "(not set — add GOOGLE_SHEET_ID env var)"))
-    logger.info("=" * 60)
-
-    return stats
-
-
-# ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    try:
-        summary = run_pipeline()
-        logger.info("🛑 [AUTOMATIC STOP] 10 jobs completed. Agent shutting down cleanly.")
-        sys.exit(0)
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user.")
-        sys.exit(0)
-    except Exception as exc:
-        logger.critical("Unhandled error: %s", exc, exc_info=True)
-        sys.exit(1)
+    run_pipeline()
