@@ -81,7 +81,12 @@ def run_pipeline() -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     groq_api_key = os.environ.get("GROQ_API_KEY")
-    groq_client = Groq(api_key=groq_api_key) if (groq_api_key and Groq) else None
+    groq_client = None
+    if groq_api_key and Groq:
+        try:
+            groq_client = Groq(api_key=groq_api_key)
+        except Exception as e:
+            logger.warning("Groq client init notice: %s. Using Gemini directly.", e)
 
     qualified_jobs = []
 
@@ -96,15 +101,7 @@ def run_pipeline() -> dict:
 
         eval_result = evaluate_job(job=job, base_profile=profile, groq_client=groq_client)
         score = eval_result.get("score", 0.0)
-        
-        # Accept if score >= pass_threshold OR fallback heuristic
         passed = eval_result.get("passed", False)
-        if not passed:
-            # Let dev/tech roles qualify automatically to ensure user gets daily results
-            dev_keywords = ["developer", "engineer", "software", "frontend", "backend", "full stack", "react", "node", "web", "tech"]
-            if any(k in f"{title} {job.get('description', '')}".lower() for k in dev_keywords):
-                score = max(score, 0.80)
-                passed = True
 
         if not passed:
             logger.info("  Skipping: Fit score %.0f%% below threshold.", score * 100)
@@ -120,7 +117,12 @@ def run_pipeline() -> dict:
         pdf_path = output_dir / pdf_filename
 
         tex_code = generate_latex_source(profile=tailored_profile, target_job=job)
-        compile_latex_to_pdf(tex_code=tex_code, output_pdf_path=str(pdf_path), output_tex_path=str(tex_path))
+        compile_latex_to_pdf(
+            tex_code=tex_code,
+            output_pdf_path=str(pdf_path),
+            output_tex_path=str(tex_path),
+            profile=tailored_profile
+        )
 
         job_info = {
             "id": jid,
@@ -148,7 +150,7 @@ def run_pipeline() -> dict:
         )
 
         qualified_jobs.append(job_info)
-        logger.info("  ✅ Qualified Job [%d/%d]: %s (%s)", len(qualified_jobs), daily_limit, title, company)
+        logger.info("  ✅ Qualified Job [%d/%d]: %s (%s) - Score: %.0f%%", len(qualified_jobs), daily_limit, title, company, score * 100)
 
     # 4. Dispatch Briefing to WhatsApp
     if qualified_jobs:
