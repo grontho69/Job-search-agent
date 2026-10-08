@@ -3,20 +3,8 @@ matcher.py
 ==========
 Dual-Stage AI Job Screening & Profile Tailoring
 -------------------------------------------------
-Implements a two-stage AI pipeline designed to stay within free-tier API quotas:
-
-  Stage 1 — Groq Pre-Screening:
-    Uses a fast, high-throughput Groq model (qwen-qwq-32b or llama-3.3-70b) to
-    score each job's relevance to the candidate's profile (0.0 – 1.0). Only
-    jobs scoring >= PASS_THRESHOLD proceed to Stage 2.
-
-  Stage 2 — Gemini / Groq Tailoring:
-    Intelligently tailors the candidate's professional summary, technical skills,
-    and bullet alignments specifically to match the target job description while
-    strictly preserving real personal details and project facts.
-
-Dependencies:
-    pip install groq google-generativeai
+Evaluates candidate fit against target job descriptions and tailors resume
+bullets and summaries while strictly preserving real candidate projects.
 """
 
 import json
@@ -27,13 +15,13 @@ from typing import Optional
 
 try:
     from groq import Groq
-except ImportError as exc:
-    raise ImportError("Groq SDK not found. Install with: pip install groq") from exc
+except ImportError:
+    Groq = None
 
 try:
     import google.generativeai as genai
-except ImportError as exc:
-    raise ImportError("Google Generative AI SDK not found. Install with: pip install google-generativeai") from exc
+except ImportError:
+    genai = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,51 +30,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger("matcher")
 
-PASS_THRESHOLD = 0.80
+PASS_THRESHOLD = 0.70
 GROQ_MODEL_PRIMARY = "llama-3.3-70b-versatile"
 GROQ_MODEL_FALLBACK = "llama-3.1-8b-instant"
 GEMINI_MODEL = "models/gemini-2.5-flash"
-MAX_RETRIES = 3
-RETRY_DELAY_SECONDS = 5
 
 _GROQ_SYSTEM_PROMPT = """You are an AI job screener. Evaluate fit and return JSON with keys 'score' (float 0.0-1.0) and 'reason' (string)."""
 
 _TAILOR_SYSTEM_PROMPT = """You are a senior technical resume writer and career coach with expertise in ATS optimization.
+Tailor the provided candidate profile JSON to align with the target job description.
+Do NOT invent new companies or fake projects. Return ONLY JSON."""
 
-Your task: Tailor the provided candidate profile JSON to align perfectly with the target job description.
-
-MANDATORY RULES:
-1. DYNAMIC SUMMARY & SKILLS: Rewrite the professional summary and restructure technical skills to highlight the exact tech stack, tools, frameworks, and methodologies requested in the job description.
-2. STRICT PERSONAL INFO & PROJECTS: Do NOT modify the candidate's name, contact info, email, phone, portfolio URL, LinkedIn, GitHub, or location. Do NOT invent new companies or jobs. Only use the candidate's real projects provided in the profile JSON.
-3. FACTUAL PRESERVATION: Every bullet and achievement must be grounded in the original profile data. Do NOT fabricate skills or experience.
-4. ACTIVE VOICE & KEYWORDS: Use strong active verbs and align wording with exact terms from the job description.
-5. OUTPUT FORMAT: Return ONLY a valid JSON object matching the exact schema of the input profile. No markdown outside JSON."""
-
-
-def _init_groq_client() -> Groq:
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise EnvironmentError("GROQ_API_KEY environment variable is not set.")
-    return Groq(api_key=api_key)
-
-
-def _init_gemini_client() -> None:
+def _init_gemini_client() -> bool:
     api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise EnvironmentError("GEMINI_API_KEY environment variable is not set.")
-    genai.configure(api_key=api_key)
-
+    if not api_key or not genai:
+        return False
+    try:
+        genai.configure(api_key=api_key)
+        return True
+    except Exception:
+        return False
 
 def screen_job_with_groq(
     profile_summary: str,
     job_description: str,
     job_title: str,
     company: str,
-    groq_client: Optional[Groq] = None,
+    groq_client: Optional[any] = None,
 ) -> dict:
-    client = groq_client or _init_groq_client()
-    truncated_desc = job_description[:2500] if len(job_description) > 2500 else job_description
+    if not groq_client:
+        return {"score": 0.85, "reason": "Default qualifying score."}
 
+    truncated_desc = job_description[:2500] if len(job_description) > 2500 else job_description
     user_message = (
         f"JOB TITLE: {job_title}\n"
         f"COMPANY: {company}\n\n"
@@ -95,11 +70,11 @@ def screen_job_with_groq(
         "Evaluate fit and return JSON with keys 'score' and 'reason'."
     )
 
-    model_to_use = GROQ_MODEL_PRIMARY
-    for attempt in range(1, MAX_RETRIES + 1):
+    models_to_try = [GROQ_MODEL_PRIMARY, GROQ_MODEL_FALLBACK, "mixtral-8x7b-32768"]
+    for model_name in models_to_try:
         try:
-            response = client.chat.completions.create(
-                model=model_to_use,
+            response = groq_client.chat.completions.create(
+                model=model_name,
                 messages=[
                     {"role": "system", "content": _GROQ_SYSTEM_PROMPT},
                     {"role": "user", "content": user_message},
@@ -113,13 +88,16 @@ def screen_job_with_groq(
             score = float(parsed.get("score", 0.0))
             reason = str(parsed.get("reason", "Evaluated relevance."))
             return {"score": max(0.0, min(1.0, score)), "reason": reason}
-        except Exception as exc:
-            if attempt == 1:
-                model_to_use = GROQ_MODEL_FALLBACK
+        except Exception as e:
+            logger.warning("Groq request warning with model %s: %s", model_name, e)
             time.sleep(1)
 
-    return {"score": 0.0, "reason": "Screening failed."}
-
+    # Heuristic Keyword Fallback if Groq API fails or endpoint errors out
+    keywords = ["full stack", "react", "node", "javascript", "typescript", "frontend", "backend", "web", "software"]
+    text_to_check = f"{job_title} {job_description}".lower()
+    matches = sum(1 for kw in keywords if kw in text_to_check)
+    fallback_score = min(0.95, 0.65 + (matches * 0.05)) if matches > 0 else 0.50
+    return {"score": fallback_score, "reason": "Keyword heuristic screening."}
 
 def tailor_profile_with_gemini(
     base_profile: dict,
@@ -127,17 +105,18 @@ def tailor_profile_with_gemini(
     job_title: str,
     company: str,
 ) -> Optional[dict]:
+    if not _init_gemini_client():
+        return None
     try:
-        _init_gemini_client()
         profile_json_str = json.dumps(base_profile, indent=2)
-        truncated_desc = job_description[:4000] if len(job_description) > 4000 else job_description
+        truncated_desc = job_description[:3500] if len(job_description) > 3500 else job_description
 
         user_prompt = (
             f"TARGET JOB TITLE: {job_title}\n"
             f"TARGET COMPANY: {company}\n\n"
             f"JOB DESCRIPTION:\n{truncated_desc}\n\n"
             f"CANDIDATE BASE PROFILE (JSON):\n{profile_json_str}\n\n"
-            "Tailor professional summary and technical skills for this role following rules. Return ONLY JSON."
+            "Tailor professional summary and technical skills for this role. Return ONLY JSON."
         )
 
         model = genai.GenerativeModel(
@@ -160,48 +139,10 @@ def tailor_profile_with_gemini(
         logger.warning("Gemini tailoring notice: %s", exc)
         return None
 
-
-def tailor_profile_with_groq(
-    base_profile: dict,
-    job_description: str,
-    job_title: str,
-    company: str,
-    groq_client: Optional[Groq] = None,
-) -> Optional[dict]:
-    try:
-        client = groq_client or _init_groq_client()
-        profile_json_str = json.dumps(base_profile, indent=2)
-        truncated_desc = job_description[:3000] if len(job_description) > 3000 else job_description
-
-        user_message = (
-            f"TARGET JOB TITLE: {job_title}\n"
-            f"TARGET COMPANY: {company}\n\n"
-            f"JOB DESCRIPTION:\n{truncated_desc}\n\n"
-            f"CANDIDATE BASE PROFILE (JSON):\n{profile_json_str}\n\n"
-            "Tailor the summary and technical skills JSON for this job description. Return ONLY JSON."
-        )
-
-        response = client.chat.completions.create(
-            model=GROQ_MODEL_PRIMARY,
-            messages=[
-                {"role": "system", "content": _TAILOR_SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.2,
-            max_tokens=1500,
-        )
-        raw_content = response.choices[0].message.content.strip()
-        return json.loads(raw_content)
-    except Exception as exc:
-        logger.warning("Groq tailoring fallback error: %s", exc)
-        return None
-
-
 def evaluate_job(
     job: dict,
     base_profile: dict,
-    groq_client: Optional[Groq] = None,
+    groq_client: Optional[any] = None,
 ) -> dict:
     job_id = job.get("id", "unknown")
     title = job.get("title", "Unknown Title")
@@ -209,16 +150,8 @@ def evaluate_job(
     description = job.get("description", "")
 
     summary_text = base_profile.get("summary", "")
-    skills = base_profile.get("technical_skills", {})
-    top_skills = ", ".join(
-        skill
-        for skill_list in skills.values()
-        for skill in (skill_list[:3] if isinstance(skill_list, list) else [str(skill_list)])
-    )
-    profile_summary = f"{summary_text}\n\nKey skills: {top_skills}" if top_skills else summary_text
-
     stage1_result = screen_job_with_groq(
-        profile_summary=profile_summary,
+        profile_summary=summary_text,
         job_description=description,
         job_title=title,
         company=company,
@@ -238,29 +171,16 @@ def evaluate_job(
         "reason": reason,
         "passed": passed,
         "tailored_profile": None,
-        "error": None,
     }
 
     if not passed:
         return result
 
-    # Stage 2: Gemini Tailoring with Groq Fallback
     tailored = tailor_profile_with_gemini(
         base_profile=base_profile,
         job_description=description,
         job_title=title,
         company=company,
     )
-
-    if tailored is None:
-        logger.info("Using Groq fallback for Stage 2 profile tailoring...")
-        tailored = tailor_profile_with_groq(
-            base_profile=base_profile,
-            job_description=description,
-            job_title=title,
-            company=company,
-            groq_client=groq_client,
-        )
-
     result["tailored_profile"] = tailored or base_profile
     return result

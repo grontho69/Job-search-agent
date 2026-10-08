@@ -2,7 +2,6 @@
 supabase_client.py
 ==================
 Supabase client for deduplicating scraped jobs and logging daily applications.
-Ensures zero repeat jobs across daily runs.
 """
 
 import os
@@ -20,12 +19,24 @@ except ImportError:
 
 TABLE_NAME = "processed_jobs"
 
+def _clean_supabase_url(raw_url: str) -> str:
+    """Ensures Supabase URL has https and no trailing path like /rest/v1"""
+    if not raw_url:
+        return ""
+    url = raw_url.strip()
+    if not url.startswith("http"):
+        url = f"https://{url}"
+    url = url.rstrip("/")
+    if url.endswith("/rest/v1"):
+        url = url[:-8]
+    return url
+
 def get_supabase_client() -> Optional[any]:
-    """Returns an initialized Supabase Client if env vars are present."""
-    url = os.environ.get("SUPABASE_URL")
+    raw_url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
-    if not url or not key or not create_client:
+    if not raw_url or not key or not create_client:
         return None
+    url = _clean_supabase_url(raw_url)
     try:
         return create_client(url, key)
     except Exception as e:
@@ -33,7 +44,6 @@ def get_supabase_client() -> Optional[any]:
         return None
 
 def get_all_processed_job_ids() -> Set[str]:
-    """Fetches all previously processed job IDs from Supabase."""
     client = get_supabase_client()
     if not client:
         return set()
@@ -58,7 +68,6 @@ def insert_processed_job(
     pdf_url: str = "",
     status: str = "Ready To Apply"
 ) -> bool:
-    """Inserts a freshly screened job into Supabase."""
     client = get_supabase_client()
     if not client:
         return False
